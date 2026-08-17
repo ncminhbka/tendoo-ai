@@ -55,10 +55,11 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
     t2i_scores = []
     i2i_scores = []
     latencies = []
+    vrams = []
     
     # Ghi CSV
     with open(csv_path, "w", encoding="utf-8") as f:
-        f.write("case_id,track,seed,status,cer,ned,exact_match,product_sim,latency_s,composite_score\n")
+        f.write("case_id,track,seed,status,cer,ned,exact_match,product_sim,latency_s,peak_vram_gb,composite_score\n")
         for r in results:
             cid = r["case_id"]
             track = r["track"]
@@ -66,21 +67,31 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
             status = r["status"]
             m = r["metrics"]
             lat = r.get("latency_seconds", 0.0)
+            vram = r.get("peak_vram_gb", 0.0) or 0.0
             score = m.get("composite_score", 0.0)
             
-            f.write(f"{cid},{track},{seed},{status},{m.get('cer')},{m.get('ned')},{m.get('exact_match_ratio')},{m.get('product_similarity')},{lat},{score}\n")
+            f.write(f"{cid},{track},{seed},{status},{m.get('cer')},{m.get('ned')},{m.get('exact_match_ratio')},{m.get('product_similarity')},{lat},{vram},{score}\n")
             
             if status == "PASS": pass_runs += 1
             elif status == "FAIL_TEXT": fail_text_runs += 1
             elif status == "PENDING_REFERENCE": pending_ref_runs += 1
             
-            latencies.append(lat)
+            if lat > 0: latencies.append(lat)
+            if vram > 0: vrams.append(vram)
             if track == "t2i": t2i_scores.append(score)
             else: i2i_scores.append(score)
 
     avg_t2i = round(sum(t2i_scores) / max(len(t2i_scores), 1), 2)
     avg_i2i = round(sum(i2i_scores) / max(len(i2i_scores), 1), 2)
+    
     avg_lat = round(sum(latencies) / max(len(latencies), 1), 2)
+    latencies_sorted = sorted(latencies) if latencies else [0.0]
+    p95_lat = round(latencies_sorted[int(len(latencies_sorted) * 0.95)], 2) if latencies_sorted else 0.0
+    min_lat = round(latencies_sorted[0], 2) if latencies_sorted else 0.0
+    max_lat = round(latencies_sorted[-1], 2) if latencies_sorted else 0.0
+    throughput = round(60.0 / max(avg_lat, 0.1), 1)
+    
+    avg_vram = round(sum(vrams) / max(len(vrams), 1), 2) if vrams else 0.0
     pass_rate = round((pass_runs / max(total_runs, 1)) * 100, 1)
 
     # Ghi Markdown
@@ -98,9 +109,21 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
 | **Tỷ lệ Đạt (Pass Rate)** | `{pass_rate}%` | `>= 70.0%` | {'🟢 ĐẠT' if pass_rate>=70 else '🟡 CẦN CẢI TIẾN'} |
 | **Điểm T2I Composite Score** | `{avg_t2i} / 100` | `>= 75.0` | {'🟢 ĐẠT' if avg_t2i>=75 else '🟡 CẦN CẢI TIẾN'} |
 | **Điểm I2I Composite Score** | `{avg_i2i} / 100` | `>= 75.0` | {'🟢 ĐẠT' if avg_i2i>=75 else '🟡 CẦN CẢI TIẾN'} |
-| **Thời gian sinh ảnh (Latency)** | `{avg_lat}s / ảnh` | `< 15.0s` | 🟢 RẤT TỐT |
+| **Độ trễ trung bình (Mean Latency)** | `{avg_lat}s / ảnh` | `< 15.0s` | 🟢 RẤT TỐT |
 | **Lượt lỗi Text (CER > 30%)** | `{fail_text_runs}` | `0` | {'🟢 0 LỖI' if fail_text_runs==0 else '🔴 LỖI TEXT'} |
 | **Case chờ ảnh Ref (Pending)** | `{pending_ref_runs}` | `0` | ℹ️ TRẠNG THÁI |
+
+---
+
+## ⚡ PHÂN TÍCH CHI TIẾT ĐỘ TRỄ (LATENCY) & THÔNG LƯỢNG (THROUGHPUT)
+
+| Chỉ số Hiệu năng Runtime | Giá trị Thực tế | Ý nghĩa Kỹ thuật |
+| :--- | :---: | :--- |
+| **Mean Latency (Độ trễ TB)** | **`{avg_lat} giây/ảnh`** | Thời gian trung bình để sinh 1 ảnh |
+| **P95 Latency (Phân vị 95%)** | **`{p95_lat} giây/ảnh`** | 95% số ảnh sinh ra nhanh hơn ngưỡng này |
+| **Min / Max Latency** | **`{min_lat}s / {max_lat}s`** | Khoảng thời gian sinh ảnh nhanh nhất / chậm nhất |
+| **Throughput (Thông lượng)** | **`{throughput} ảnh/phút`** | Số lượng ảnh sinh ra trong 1 phút trên GPU A30 |
+| **Peak VRAM Allocation** | **`{avg_vram} GB`** | Dung lượng bộ nhớ VRAM đỉnh điểm chiếm dụng |
 
 ---
 
@@ -129,3 +152,4 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
 
 if __name__ == "__main__":
     print("Module report đã sẵn sàng.")
+
