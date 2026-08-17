@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-08-17 07:21:56",
+  "system": {
+    "os": "Linux 5.15.0-186-generic",
+    "python_version": "3.12.3",
+    "cpu_count": 96,
+    "ram_gb": 251.14
+  },
+  "pytorch": {
+    "torch_version": "2.13.0+cu130",
+    "cuda_available": true,
+    "cuda_version": "13.0",
+    "cudnn_version": 92000,
+    "gpu_count": 2,
+    "is_bf16_supported": true,
+    "gpus": [
+      {
+        "id": 0,
+        "name": "NVIDIA A30",
+        "vram_gb": 23.6,
+        "compute_capability": "8.0"
+      },
+      {
+        "id": 1,
+        "name": "NVIDIA A30",
+        "vram_gb": 23.6,
+        "compute_capability": "8.0"
+      }
+    ]
+  },
+  "packages": {
+    "diffusers": "0.39.0",
+    "transformers": "5.15.0",
+    "accelerate": "1.14.0",
+    "peft": "0.20.0",
+    "bitsandbytes": "0.50.1",
+    "safetensors": "0.8.0",
+    "vietocr": "Đã cài (Không có __version__)",
+    "cv2": "5.0.0",
+    "PIL": "10.2.0",
+    "pandas": "3.0.5",
+    "numpy": "2.5.2",
+    "scipy": "1.18.0",
+    "einops": "0.2.0",
+    "sentencepiece": "0.2.2"
+  }
+}
