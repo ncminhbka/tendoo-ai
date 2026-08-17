@@ -7,5 +7,11 @@ Các hướng tiếp cận:
 
 - FLUX không thể gen ảnh có text tiếng việt (đa số hỏng)
 - Flux không hiểu các món đồ việt, như phở bò, bún chả
-- bài toán yêu cầu vietnamese scene text rendering
-- cần phân biệt đè text sau khi sinh (banner, poster) và sinh ảnh text trực tiếp
+- Bài toán yêu cầu vietnamese scene text rendering & product banner generation
+- Cần phân biệt đè text sau khi sinh (banner, poster) và sinh ảnh text trực tiếp
+
+TOP 3 OPEN-SOURCE FOUNDATION MODELS CHỌN CHO DỰ ÁN (Chi tiết xem MODEL_SELECTION.md):
+1. PixArt-Sigma (Huawei/OpenDataLab): Pure DiT, Apache 2.0, Open Code 100%, Dễ can thiệp sửa architecture nhất.
+2. HunyuanDiT (Tencent): DiT + Multilingual T5 (mT5), Apache 2.0, Open Code 100%, Hiểu ký tự Tiếng Việt có dấu.
+3. SDXL 1.0 (Stability AI): U-Net 2.6B, OpenRAIL-M, Open Code 100%, Hệ sinh thái ControlNet/LoRA lớn nhất.
+(FLUX.1 schnell / FLUX.2 klein 4B dùng làm Commercial Baseline tham chiếu điểm số).
