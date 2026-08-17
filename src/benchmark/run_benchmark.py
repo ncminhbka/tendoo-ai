@@ -88,8 +88,8 @@ def run_benchmark(max_cases: int = None):
                 ref_image=ref_img
             )
             
-            # 3. Đánh giá OCR (VietOCR simulation)
-            text_res = evaluate_texts(detected_text=" ".join(req_texts), required_texts=req_texts)
+            # 3. Đánh giá OCR (VietOCR nhận diện chữ trực tiếp từ file ảnh)
+            text_res = evaluate_texts(detected_text="", required_texts=req_texts, image_path=out_img_path)
             
             # 4. Đánh giá I2I Image Similarity
             prod_sim = evaluate_image_similarity(ref_img, out_img_path) if track == "i2i" else None

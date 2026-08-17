@@ -65,10 +65,55 @@ def calculate_ned(pred: str, gt: str) -> float:
     dist = levenshtein_distance(pred_norm, gt_norm)
     return round(1.0 - (dist / max_len), 4)
 
-def evaluate_texts(detected_text: str, required_texts: list) -> dict:
+# Khởi tạo singleton VietOCR Predictor nếu có sẵn thư viện vietocr
+_vietocr_predictor = None
+
+def get_vietocr_predictor():
+    global _vietocr_predictor
+    if _vietocr_predictor is None:
+        try:
+            from vietocr.tool.predictor import Predictor
+            from vietocr.tool.config import Cfg
+            import torch
+            
+            config = Cfg.load_config_from_name('vgg_transformer')
+            config['device'] = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+            config['predictor']['beamsearch'] = False
+            
+            _vietocr_predictor = Predictor(config)
+            print("🟢 Đã nạp thành công mô hình VietOCR Predictor trên GPU!")
+        except Exception as e:
+            print(f"⚠️ Chưa khởi tạo được VietOCR (dùng fallback text matcher): {e}")
+            _vietocr_predictor = False
+    return _vietocr_predictor
+
+def recognize_image_text(image_path: str) -> str:
+    """Đọc toàn bộ chữ Tiếng Việt từ file ảnh sử dụng VietOCR."""
+    if not image_path or not os.path.exists(image_path):
+        return ""
+        
+    predictor = get_vietocr_predictor()
+    if predictor:
+        try:
+            from PIL import Image
+            img = Image.open(image_path).convert('RGB')
+            text = predictor.predict(img)
+            return text
+        except Exception as e:
+            print(f"Lỗi khi VietOCR đọc ảnh {image_path}: {e}")
+            return ""
+    return ""
+
+def evaluate_texts(detected_text: str, required_texts: list, image_path: str = None) -> dict:
     """
     Đánh giá toàn bộ các required_texts trong một ảnh.
+    Nếu có image_path và VietOCR khả dụng, tự động nhận diện chữ từ ảnh.
     """
+    if image_path and os.path.exists(image_path):
+        ocr_text = recognize_image_text(image_path)
+        if ocr_text:
+            detected_text = ocr_text
+            
     pred_norm = normalize_text(detected_text).upper()
     
     total_cer = 0.0
@@ -96,6 +141,7 @@ def evaluate_texts(detected_text: str, required_texts: list) -> dict:
     is_fail = (avg_cer > 0.30) or (exact_matches == 0 and len(required_texts) > 0)
     
     return {
+        "detected_text": detected_text,
         "cer": avg_cer,
         "wer": avg_cer, # xấp xỉ
         "ned": avg_ned,
@@ -110,3 +156,4 @@ if __name__ == "__main__":
     print(f"Pred: {pred}")
     print(f"CER: {calculate_cer(pred, gt)}")
     print(f"NED: {calculate_ned(pred, gt)}")
+
