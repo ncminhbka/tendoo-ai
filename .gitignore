@@ -32,3 +32,10 @@ generated/
 # Logs & Temp files
 *.log
 scratch/
+
+# Secrets & API Keys
+.env
+*.env
+flux_client.py
+config.secrets.json
+
