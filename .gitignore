@@ -1,0 +1,34 @@
+# Python & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments & IDEs
+.venv/
+venv/
+ENV/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Large Model Weights & Data
+*.safetensors
+*.bin
+*.pth
+*.pt
+*.onnx
+*.engine
+*.ckpt
+
+# Output Images & Media (Chỉ giữ lại code & text)
+generated/
+*.png
+*.jpg
+*.jpeg
+*.webp
+!assets/
+
+# Logs & Temp files
+*.log
+scratch/

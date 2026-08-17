@@ -1,0 +1,42 @@
+-- VDT 2026: TENDOO MEDIA AI --
+
+I. NGỮ CẢNH DỰ ÁN & PHÁT BIỂU BÀI TOÁN
+- Dự án: Tendoo (Doanh nghiệp số) - Nền tảng quản lý bán hàng và chuyển đổi số toàn diện do Tổng Công ty Viễn thông Viettel (Viettel Telecom) phát triển, hướng tới hộ kinh doanh cá thể, cửa hàng bán lẻ, hợp tác xã và SME.
+- Đề tài: Phát triển tính năng AI tạo và chỉnh sửa ảnh theo yêu cầu người dùng (Banner, Poster quảng cáo, ảnh sản phẩm, backdrop sự kiện...). Hỗ trợ cả sinh mới từ Text và chỉnh sửa dựa trên Image Upload.
+- Thách thức cốt lõi (Pain point): Các mô hình sinh ảnh Open-Source hiện nay gặp hạn chế lớn trong việc hiển thị text, đặc biệt là Tiếng Việt có dấu thanh và font chữ đặc thù. Vùng text thường bị méo, sai chính tả, mất dấu hoặc nhòe nét.
+- Mục tiêu: Đề xuất pipeline/mô hình giải quyết bài toán hiển thị text Tiếng Việt trên ảnh quảng cáo với chất lượng đạt khoảng 70-80% so với các mô hình thương mại hàng đầu (Ideogram, Midjourney, DALL-E 3).
+
+II. MỤC TIÊU CỤ THỂ & CHỈ SỐ ĐO LƯỜNG (KEY METRICS)
+1. Độ chính xác chữ (Text Accuracy):
+   - Tính bằng Character Error Rate (CER) và Word Error Rate (WER) trên vùng text thông qua mô hình OCR (VietOCR / PaddleOCR). Mục tiêu CER < 15-20%.
+2. Chất lượng thẩm mỹ & Độ khớp Yêu cầu (Visual & Prompt Alignment):
+   - Đánh giá qua CLIP Score / PickScore và đánh giá chuyên gia (Human Evaluation).
+3. Hiệu năng & Chi phí hạ tầng (Inference Latency & Cost):
+   - Thời gian sinh ảnh (Inference time) < 15 giây/ảnh.
+   - Dung lượng VRAM tối ưu để có thể serving trên hạ tầng GPU của Viettel.
+
+III. QUY TRÌNH TRIỂN KHAI TIÊU CHUẨN (AI ENGINEER WORKFLOW)
+
+Bước 1: Khảo sát & Lựa chọn Mô hình Nền tảng (Base Model Selection)
+- Tiêu chí: Mở cả weights lẫn mã nguồn (Python/PyTorch), cho phép chỉnh sửa kiến trúc, giấy phép sử dụng hợp pháp cho sản phẩm thương mại (Apache 2.0, MIT, OpenRAIL).
+- Ứng viên ưu tiên: FLUX.2 [klein-4B/9B], Stable Diffusion 3.5 Medium, Kolors, hoặc các mô hình Rectified Flow/MMDiT mới ra mắt.
+
+Bước 2: Xây dựng Bộ Dữ liệu & Tập Benchmark Đánh giá (Dataset & Benchmark Suite)
+- Thu thập/Sinh tự động tập dữ liệu Banner/Poster quảng cáo Tiếng Việt (Synthetic Dataset với Text Glyphs & Bounding Boxes).
+- Xây dựng tập Test Set chuẩn (50-100 prompts đa dạng các ngành hàng bán lẻ Tendoo: F&B, thời trang, tạp hóa, sự kiện...).
+- Viết Pipeline tự động tính toán các chỉ số: OCR Accuracy, CLIP Score, Latency.
+
+Bước 3: Đánh giá Baseline
+- Chạy thử nghiệm các Open-Source Model gốc trên tập Benchmark để ghi nhận kết quả điểm nền (Baseline Score).
+
+Bước 4: Vòng lặp Nghiên cứu & Cải tiến (Iterative Improvement Loop)
+- Thử nghiệm các phương án kỹ thuật:
+  + Phương án 1 (Finetuning): Continued Pre-training / LoRA / Full finetune trên tập dữ liệu chữ Tiếng Việt.
+  + Phương án 2 (Architecture Modification): Tích hợp/Thay thế Text Encoder hỗ trợ tốt tiếng Việt (ViT5/mT5/T5-XXL) hoặc thêm các lớp Modulator/Attention mới.
+  + Phương án 3 (ControlNet & Modular Pipeline): Kết hợp Glyph Conditioning (bản đồ nét chữ), TextDiffuser / AnyText hoặc Inpainting layer cho vùng text.
+- Đánh giá lại kết quả trên Tập Benchmark sau mỗi lần cập nhật.
+
+Bước 5: Tối ưu hóa Inference & Đóng gói Bàn giao (Optimization & Deployment Handover)
+- Nén & Tối ưu mô hình: Quantization (FP16/BF16/INT8), biên dịch với TensorRT / ONNX Runtime / torch.compile.
+- Đóng gói Docker Container chuẩn hóa API (REST/gRPC) kèm tài liệu cấu hình.
+- Bàn giao Best Model và Pipeline cho team MLOps triển khai lên hệ thống Production của Tendoo.
