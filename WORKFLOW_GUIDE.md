@@ -57,17 +57,21 @@ git push origin main
 
 ### Bước 3: Cập nhật & Thực thi trên GPU Server (JupyterLab Nội bộ)
 1. Truy cập vào giao diện JupyterLab trên trình duyệt máy công ty qua URL nội bộ do Mentor cấp.
-2. Mở một **Terminal** mới trên JupyterLab.
-3. Kích hoạt môi trường conda của dự án:
+2. **LƯU Ý LƯU TRỮ VĨNH VIỄN (PERSISTENT STORAGE)**:
+   - Trong JupyterLab có 2 thư mục gắn với đĩa cứng cố định: **`persistent-data/`** hoặc **`work/`**.
+   - **QUY TẮC BẮT BUỘC**: Mọi dự án Git (`tendoo-ai`), model weights tải về (`.safetensors`), dataset và kết quả benchmark **phải nằm bên trong `persistent-data/` hoặc `work/`**.
+   - Dữ liệu nằm trong 2 thư mục này sẽ **KHÔNG BỊ MẤT** kể cả khi tắt máy, hết session hay container bị restart.
+3. Mở một **Terminal** mới trong thư mục vĩnh viễn (`cd persistent-data/tendoo-ai` hoặc `cd work/tendoo-ai`).
+4. Kích hoạt môi trường conda của dự án:
    ```bash
    conda activate tendoo_ai
    ```
-4. Kéo mã nguồn mới nhất về Server:
+5. Kéo mã nguồn mới nhất về Server:
    ```bash
    git pull origin main
    # (Hoặc tải file ZIP từ GitHub nếu mạng nội bộ chặn Git SSH)
    ```
-5. Kiểm tra tình trạng GPU trước khi chạy:
+6. Kiểm tra tình trạng GPU trước khi chạy:
    ```bash
    nvidia-smi
    ```
@@ -84,7 +88,33 @@ git push origin main
 
 ---
 
-## 4. BEST PRACTICES & LƯU Ý KHI LÀM VIỆC
+## 4. QUẢN LÝ SESSION & QUY TRÌNH TẮT JUPYTERLAB AN TOÀN
+
+### ❓ Trạng thái Session & Tiến trình:
+- **Tệp tin (Files/Data)**: Lưu trong `persistent-data/` hoặc `work/` sẽ **giữ nguyên 100%**, không bao giờ mất.
+- **Biến trong RAM / GPU VRAM**: Khi đóng trình duyệt hoặc tắt Kernel, các biến tạm trong RAM sẽ xóa (để trả GPU cho người khác).
+- **Chạy job dài không lo mất session**: Nếu muốn chạy job huấn luyện dài (vài tiếng), dùng `tmux` hoặc `nohup`:
+  ```bash
+  tmux new -s train_job
+  python train.py
+  # Bấm Ctrl+B rồi bấm D để thoát ra ngoài mà job vẫn chạy ngầm
+  ```
+
+### 🛡️ Quy trình 4 Bước Tắt JupyterLab An toàn:
+
+1. **Lưu toàn bộ công việc**:
+   - Nhấn `Ctrl + S` hoặc menu `File -> Save All` trên tất cả các tab đang mở.
+2. **Commit & Push kết quả mới (nếu có)**:
+   - Trong Terminal: `git add . && git commit -m "results: cập nhật kết quả benchmark" && git push origin main`.
+3. **Tắt các Kernel / Terminal giải phóng GPU (Cực kỳ quan trọng)**:
+   - Nhấp vào biểu tượng **Running Terminals and Kernels** (hình ô vuông có dấu tròn 🟢 ở thanh công cụ dọc bên trái).
+   - Nhấp **Shut Down** ở tất cả các Notebook/Terminal đang chạy ngầm để trả lại 100% VRAM GPU A30 cho hệ thống.
+4. **Đăng xuất / Tắt Tab**:
+   - Vào menu `File -> Log Out` (hoặc `File -> Shut Down`), sau đó đóng tab trình duyệt an toàn.
+
+---
+
+## 5. BEST PRACTICES & LƯU Ý KHI LÀM VIỆC
 
 1. **Quản lý Tài nguyên VRAM**:
    - Khi load mô hình lớn (FLUX.2 klein-4B / SDXL), luôn dùng kiểu dữ liệu `torch.bfloat16` hoặc `torch.float16` để tiết kiệm VRAM.
