@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TendooBizEvalResult",
+  "type": "object",
+  "required": [
+    "case_id",
+    "track",
+    "seed",
+    "output_image_path",
+    "latency_seconds",
+    "status",
+    "metrics"
+  ],
+  "properties": {
+    "case_id": { "type": "string" },
+    "track": { "type": "string", "enum": ["t2i", "i2i"] },
+    "seed": { "type": "integer" },
+    "output_image_path": { "type": "string" },
+    "latency_seconds": { "type": "number" },
+    "peak_vram_gb": { "type": ["number", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL_TEXT", "FAIL_IDENTITY", "FAIL_TECHNICAL", "PENDING_REFERENCE"]
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "cer": { "type": "number" },
+        "wer": { "type": "number" },
+        "ned": { "type": "number" },
+        "exact_match_ratio": { "type": "number" },
+        "product_similarity": { "type": ["number", "null"] },
+        "prompt_alignment": { "type": ["number", "null"] },
+        "aesthetic_score": { "type": ["number", "null"] },
+        "composite_score": { "type": "number" }
+      }
+    }
+  }
+}

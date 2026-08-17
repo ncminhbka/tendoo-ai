@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TendooBizEvalCase",
+  "type": "object",
+  "required": [
+    "case_id",
+    "track",
+    "instruction",
+    "required_text",
+    "difficulty",
+    "output_size"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "track": {
+      "type": "string",
+      "enum": ["t2i", "i2i"]
+    },
+    "reference_image": {
+      "type": ["string", "null"]
+    },
+    "instruction": {
+      "type": "string"
+    },
+    "required_text": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "product_attributes": {
+      "type": "object",
+      "properties": {
+        "category": { "type": "string" },
+        "color": { "type": "string" },
+        "preserve_logo": { "type": "boolean" },
+        "preserve_shape": { "type": "boolean" }
+      }
+    },
+    "edit_type": {
+      "type": ["string", "null"],
+      "enum": [
+        "background_replacement",
+        "lifestyle_placement",
+        "key_visual",
+        "preserve_packaging_logo",
+        "object_removal_cleanup",
+        null
+      ]
+    },
+    "target_layout": {
+      "type": "string"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "medium", "hard"]
+    },
+    "output_size": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}

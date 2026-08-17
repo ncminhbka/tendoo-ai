@@ -1,0 +1,24 @@
+{
+  "version": "v0",
+  "total_references": 50,
+  "status_summary": {
+    "available": 15,
+    "pending_reference": 35
+  },
+  "references": [
+    {
+      "ref_id": "prod_001",
+      "category": "simple_product",
+      "path": "benchmarks/tendoo_v0/references/simple_product/prod_001.png",
+      "status": "pending_reference",
+      "description": "Smartwatch đen nền trắng"
+    },
+    {
+      "ref_id": "prod_002",
+      "category": "packaging_and_logo",
+      "path": "benchmarks/tendoo_v0/references/packaging_and_logo/prod_002.png",
+      "status": "pending_reference",
+      "description": "Hũ mỹ phẩm serum thủy tinh"
+    }
+  ]
+}
