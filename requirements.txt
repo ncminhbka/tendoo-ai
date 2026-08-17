@@ -1,0 +1,30 @@
+# Environment Dependencies for Tendoo Media AI (NVIDIA A30 GPU Supported)
+
+# Core PyTorch Framework
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
+
+# Generative AI & HuggingFace Ecosystem
+diffusers==0.30.0
+transformers==4.44.0
+accelerate==0.33.0
+peft==0.12.0
+bitsandbytes==0.43.3
+safetensors==0.4.3
+sentencepiece==0.2.0
+protobuf==4.25.3
+einops==0.8.0
+
+# OCR & Evaluation Benchmark Metrics
+vietocr==0.3.13
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+
+# Utils & Utilities
+pyyaml==6.0.1
+tqdm==4.66.4
+requests==2.32.3
