@@ -1,4 +1,4 @@
-# BÁO CÁO CẤU HÌNH HẠ TẦNG AI SERVER (VIETTEL TELECOM)
+# BÁO CÁO CẤU HÌNH HẠ TẦNG AI SERVER
 
 **Thời gian kiểm tra**: 2026-08-17 07:21:56
 
@@ -11,14 +11,13 @@
 ## 2. Thông tin GPU & PyTorch CUDA
 - **PyTorch Version**: `2.13.0+cu130`
 - **CUDA Version**: `13.0`
-- **cuDNN Version**: `92000`
 - **Hỗ trợ bfloat16**: `True`
-- **Số lượng GPU**: `2` cards
 - **Danh sách GPU**:
   - **GPU 0**: `NVIDIA A30` | VRAM: `23.6 GB` | Compute Capability: `8.0`
   - **GPU 1**: `NVIDIA A30` | VRAM: `23.6 GB` | Compute Capability: `8.0`
 
-## 3. Danh sách Phiên bản Thư viện AI Thực tế
+## 3. Danh sách Phiên bản Thư viện AI
+
 | Thư viện | Phiên bản |
 | :--- | :--- |
 | `diffusers` | `0.39.0` |
@@ -27,7 +26,7 @@
 | `peft` | `0.20.0` |
 | `bitsandbytes` | `0.50.1` |
 | `safetensors` | `0.8.0` |
-| `vietocr` | `Đã cài` |
+| `vietocr` | `Đã cài (Không có __version__)` |
 | `cv2` | `5.0.0` |
 | `PIL` | `10.2.0` |
 | `pandas` | `3.0.5` |

@@ -9,6 +9,10 @@ import platform
 import json
 from datetime import datetime
 
+# Đảm bảo in tiếng Việt UTF-8 chuẩn trên mọi terminal
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 def get_size_gb(bytes_val):
     return round(bytes_val / (1024 ** 3), 2)
 
