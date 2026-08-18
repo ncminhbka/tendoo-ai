@@ -8,6 +8,9 @@ Tự động khởi tạo tập test cases T2I và I2I bám sát nghiệp vụ t
 - Ảnh Tin Tuyển Dụng (Tuyển nhân viên bán hàng, pha chế)
 - Menu Món Ăn & Đồ Uống (Thực đơn Phở Bò, Menu trà trái cây)
 - Yêu Cầu Sinh Tự Do & Hiểu Văn Hóa Việt (Tết 2026, Áo dài, Nón lá, Hoa đào)
+- STRESS TEST 1: Dấu Tiếng Việt Khó & Phức Tạp (ẫ, ỡ, ẻ, ửng, nghễu...)
+- STRESS TEST 2: Số, Định Dạng Tiền Tệ (199.000đ, 500.000Đ) & SĐT/Hotline (0987.654.321, 1900-8198)
+- STRESS TEST 3: Text Đa Dòng & Đa Cấp Độ Cỡ Chữ (Tiêu đề + Subtitle + Giá + Hotline)
 - Chỉnh Sửa Ảnh Tự Do I2I (Thay nền studio, Ghép sản phẩm lên bục đá, Bàn gỗ)
 """
 
@@ -43,7 +46,7 @@ EDIT_TYPES = [
     "object_removal_cleanup"
 ]
 
-# Danh sách mẫu T2I bám sát nhu cầu thực tế người dùng SME Tendoo
+# Danh sách mẫu T2I bám sát nhu cầu thực tế người dùng SME Tendoo + Stress test tiếng Việt nâng cao
 T2I_DATA = [
     # 1. Poster Khuyến Mại & Ưu Đãi
     ("Poster khuyến mại giảm 50% chương trình Giờ Vàng Giá Sốc với tiêu đề SIÊU SALE MÙA HÈ gam màu đỏ rực rỡ", ["SIÊU SALE MÙA HÈ"]),
@@ -107,7 +110,28 @@ T2I_DATA = [
     ("Tạo ảnh quảng cáo phố cổ Hà Nội mùa thu vắng lặng với gánh hàng hoa cúc họa mi vàng rực rỡ dòng chữ HÀ NỘI MÙA THU", ["HÀ NỘI MÙA THU"]),
     ("Poster nghệ thuật đêm hội Trung Thu Việt Nam với đèn ông sao múa lân sôi động dòng chữ TẾT TRUNG THU SUM VẬY", ["TẾT TRUNG THU SUM VẬY"]),
     ("Tạo ảnh minh họa cảnh làm gốm sứ Bát Tràng truyền thống với bàn xoay đất sét hoa văn men ngọc TINH HOA GỐM VIỆT", ["TINH HOA GỐM VIỆT"]),
-    ("Poster phong cách Pop-Art hiện đại chào mừng Quốc Khánh 2/9 cờ đỏ sao vàng khẩu hiệu TỰ HÀO VIỆT NAM hào hùng", ["TỰ HÀO VIỆT NAM"])
+    ("Poster phong cách Pop-Art hiện đại chào mừng Quốc Khánh 2/9 cờ đỏ sao vàng khẩu hiệu TỰ HÀO VIỆT NAM hào hùng", ["TỰ HÀO VIỆT NAM"]),
+
+    # 8. STRESS TEST 1: Dấu Tiếng Việt Khó & Phức Tạp (diacritics_stress_test)
+    ("Poster quảng cáo mỹ phẩm tự nhiên tiêu đề NGHỆ THUẬT NGHỄU NGHỆ VỚI LÀN DA RỰC RỠ ỬNG HỒNG phong cách spa dịu mát", ["NGHỆ THUẬT NGHỄU NGHỆ", "ỬNG HỒNG"]),
+    ("Banner giới thiệu món ăn bổ dưỡng tiêu đề BỔ DƯỠNG NGHỆ HOÀNG VÀ TỔ YẾN NGHỄU NGHỆ màu vàng kim sang trọng", ["BỔ DƯỠNG NGHỆ HOÀNG", "NGHỄU NGHỆ"]),
+    ("Poster thông báo mở cửa shop phong cách Vintage tiêu đề CỬA HẢO BẠNG MỞ CỬA HỎA NỐC RỘN RÀNG", ["CỬA HẢO BẠNG", "MỞ CỬA"]),
+    ("Banner quảng cáo serum dưỡng da dòng chữ NĂNG LƯỢNG RỰC RỠ ỬNG HỒNG CHO LÀN DA TƯƠI TRẺ", ["NĂNG LƯỢNG RỰC RỠ", "ỬNG HỒNG"]),
+    ("Poster nghệ thuật ẩm thực truyền thống tiêu đề HƯƠNG VỊ RỰC RỠ ĐƠN DỰNG NGHỄU NGHỆ đậm đà", ["HƯƠNG VỊ RỰC RỠ", "NGHỄU NGHỆ"]),
+
+    # 9. STRESS TEST 2: Số, Định Dạng Tiền Tệ (VND/đ) & Hotline Thực Tế (currency_phone_stress_test)
+    ("Poster khuyến mại ưu đãi sốt dẻo tiệm trà sữa với tiêu đề ĐỒNG GIÁ 19.000đ kèm chữ Hotline: 0987.654.321", ["ĐỒNG GIÁ 19.000đ", "Hotline: 0987.654.321"]),
+    ("Banner flash sale shop thời trang tiêu đề GIẢM NÓNG 500.000Đ DÀNH CHO 100 KHÁCH HÀNG ĐẦU TIÊN", ["GIẢM NÓNG 500.000Đ", "100 KHÁCH HÀNG"]),
+    ("Poster menu combo bữa ăn gia đình tiêu đề COMBO GIA ĐÌNH CHỈ 299.000đ liên hệ Tổng đài: 1900-8198", ["COMBO GIA ĐÌNH CHỈ 299.000đ", "Tổng đài: 1900-8198"]),
+    ("Banner khuyến mại mỹ phẩm chính hãng tiêu đề GIÁ CHỈ 199.000đ tư vấn ngay 0912.345.678", ["GIÁ CHỈ 199.000đ", "0912.345.678"]),
+    ("Poster voucher xả kho điện máy tiêu đề VOUCHER 1.000.000đ HOTLINE DỊCH VỤ: 1800-1060", ["VOUCHER 1.000.000đ", "HOTLINE DỊCH VỤ: 1800-1060"]),
+
+    # 10. STRESS TEST 3: Text Đa Dòng & Đa Cấp Độ Cỡ Chữ (multiline_hierarchy_stress_test)
+    ("Banner quảng cáo siêu thị điện máy có tiêu đề chính SIÊU SALE MÙA HÈ, slogan nhỏ GIẢM GIÁ LÊN TỚI 50%, và giá GIÁ CHỈ 4.990.000đ kèm Hotline: 0987.654.321", ["SIÊU SALE MÙA HÈ", "GIẢM GIÁ LÊN TỚI 50%", "GIÁ CHỈ 4.990.000đ", "Hotline: 0987.654.321"]),
+    ("Poster quảng cáo kem dưỡng da có tiêu đề lớn SERUM DƯỠNG TRẮNG, dòng phụ LÀN DA RỰC RỠ ỬNG HỒNG, giá ƯU ĐÃI 299.000đ và hotline 0909.123.456", ["SERUM DƯỠNG TRẮNG", "LÀN DA RỰC RỠ ỬNG HỒNG", "ƯU ĐÃI 299.000đ", "0909.123.456"]),
+    ("Poster thực đơn bánh mì nóng có tiêu đề THỰC ĐƠN BÁNH MÌ NÓNG, dòng giá Ổ ĐẶC BIỆT 35.000đ, slogan MUA 3 TẶNG 1, hotline Tổng đài: 1900-8198", ["THỰC ĐƠN BÁNH MÌ NÓNG", "Ổ ĐẶC BIỆT 35.000đ", "MUA 3 TẶNG 1", "Tổng đài: 1900-8198"]),
+    ("Banner khai trương tiệm trà trái cây có tiêu đề GRAND OPENING TRÀ TƯƠI, sub-heading GIẢM 30% TOÀN BỘ MENU, giá CHỈ TỪ 25.000đ, Hotline: 0977.888.999", ["GRAND OPENING TRÀ TƯƠI", "GIẢM 30% TOÀN BỘ MENU", "CHỈ TỪ 25.000đ", "Hotline: 0977.888.999"]),
+    ("Poster tuyển dụng nhân sự có tiêu đề TUYỂN DỤNG NHÂN VIÊN BÁN HÀNG, dòng phụ LƯƠNG 10-15 TRIỆU, hotline liên hệ Hotline: 0933.555.777", ["TUYỂN DỤNG NHÂN VIÊN BÁN HÀNG", "LƯƠNG 10-15 TRIỆU", "Hotline: 0933.555.777"])
 ]
 
 def build_benchmark_v1_cases():

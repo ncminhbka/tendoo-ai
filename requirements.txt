@@ -17,7 +17,6 @@ protobuf==4.25.3
 einops==0.2.0
 
 # OCR & Evaluation Benchmark Metrics
-vietocr==0.3.13
 opencv-python-headless==5.0.0
 Pillow==10.2.0
 pandas==3.0.5
@@ -29,3 +28,9 @@ scikit-learn==1.5.1
 pyyaml==6.0.1
 tqdm==4.66.4
 requests==2.32.3
+
+# Optional benchmark evaluators. Install these on the benchmark GPU environment.
+t2v-metrics
+paddleocr
+paddlepaddle
+open_clip_torch

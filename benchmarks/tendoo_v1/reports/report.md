@@ -1,63 +1,70 @@
-# BÁO CÁO KẾT QUẢ BENCHMARK TENDOOBIZEVAL-VI (v0)
+# TendooBizEval-Vi Benchmark Report
 
-**Thời gian xuất báo cáo**: Tue 08/18/2026
-**Tổng số lượt chạy hiện có (3 Seeds/case)**: `6`
-**Dataset hiện tại**: `50 T2I + 50 I2I`
-**Trạng thái dữ liệu**: `CẦN CHẠY LẠI TOÀN BỘ SAU KHI ĐỔI CASES`
+Generated: `2026-08-18T17:10:19+07:00`
+Runs: `6`
+Dataset: `50 T2I + 46 I2I`
+Dataset status: `STALE - rerun missing cases`
 
----
+## Executive Summary
 
-## 📊 BẢNG TỔNG HỢP HIỆU NĂNG & CHẤT LƯỢNG
+| Metric | Value | Interpretation |
+| :--- | ---: | :--- |
+| Pass rate among completed runs | `0.0%` | Excludes pending reference runs |
+| Pass rate across all runs | `0.0%` | Includes pending reference runs |
+| T2I composite score | `N/A` | Average of runs with coverage > 0 |
+| I2I composite score | `N/A` | Average of runs with coverage > 0 |
+| Average score coverage | `0.0%` | Share of configured weight measured |
+| FAIL_TEXT | `6` | OCR/CER gate failed or OCR unavailable |
+| FAIL_IDENTITY | `0` | DINOv2 identity gate failed |
+| FAIL_TECHNICAL | `0` | Generation/runtime failure |
+| PENDING_REFERENCE | `0` | Reference image not available |
 
-| Chỉ số Đánh giá | Giá trị Thực tế | Mục tiêu Đặt ra | Trạng thái |
-| :--- | :---: | :---: | :---: |
-| **Tỷ lệ Đạt (Pass Rate)** | `0.0%` | `>= 70.0%` | 🟡 CẦN CẢI TIẾN |
-| **Điểm T2I Composite Score** | `30.0 / 100` | `>= 75.0` | 🟡 CẦN CẢI TIẾN |
-| **Điểm I2I Composite Score** | `0.0 / 100` | `>= 75.0` | 🟡 CẦN CẢI TIẾN |
-| **Độ trễ trung bình (Mean Latency)** | `0.77s / ảnh` | `< 15.0s` | 🟢 RẤT TỐT |
-| **Lượt lỗi Text (CER > 30%)** | `6` | `0` | 🔴 LỖI TEXT |
-| **Case chờ ảnh Ref (Pending)** | `0` | `0` | ℹ️ TRẠNG THÁI |
+## Composite Score
 
----
+Scores are normalized over available dimensions. Missing or unavailable metrics are excluded from both numerator and denominator; they are never replaced with a default score.
 
-## ⚡ PHÂN TÍCH CHI TIẾT ĐỘ TRỄ (LATENCY) & THÔNG LƯỢNG (THROUGHPUT)
+T2I weights: `Text accuracy 40%, Prompt alignment 30%, Aesthetic quality 20%`.
+I2I weights: `Text accuracy 25%, Prompt alignment 20%, Aesthetic quality 15%, Product preservation 40%`.
 
-| Chỉ số Hiệu năng Runtime | Giá trị Thực tế | Ý nghĩa Kỹ thuật |
-| :--- | :---: | :--- |
-| **Mean Latency (Độ trễ TB)** | **`0.77 giây/ảnh`** | Thời gian trung bình để sinh 1 ảnh |
-| **P95 Latency (Phân vị 95%)** | **`2.13 giây/ảnh`** | 95% số ảnh sinh ra nhanh hơn ngưỡng này |
-| **Min / Max Latency** | **`0.5s / 2.13s`** | Khoảng thời gian sinh ảnh nhanh nhất / chậm nhất |
-| **Throughput (Thông lượng)** | **`77.9 ảnh/phút`** | Số lượng ảnh sinh ra trong 1 phút trên GPU A30 |
-| **Peak VRAM Allocation** | **`0.0 GB`** | Dung lượng bộ nhớ VRAM đỉnh điểm chiếm dụng |
+Text accuracy is `0.7 * NED + 0.3 * Exact Match Ratio`. A measured CER above 30% caps the run score at 30. A score with zero coverage is reported as `0` in the machine-readable output but is marked unusable for track averages.
 
----
+## Metric Availability
 
-## 📋 ĐIỂM CHI TIẾT TỪNG TRACK
+| Track | Metric | Configured weight | Measured | Unavailable | Proxy | Legacy/unknown |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| t2i | Text accuracy | 40% | 0 | 0 | 0 | 6 |
+| t2i | Prompt alignment | 30% | 0 | 0 | 0 | 6 |
+| t2i | Aesthetic quality | 20% | 0 | 0 | 0 | 6 |
+| i2i | Text accuracy | 25% | 0 | 0 | 0 | 0 |
+| i2i | Prompt alignment | 20% | 0 | 0 | 0 | 0 |
+| i2i | Aesthetic quality | 15% | 0 | 0 | 0 | 0 |
+| i2i | Product preservation | 40% | 0 | 0 | 0 | 0 |
 
-### 1. Track T2I (Text-to-Image Poster Ad)
-- **Dataset**: `50 cases`; **runs hiện có**: `2 cases`
-- **Trọng số**: Text Accuracy 40%, Alignment 25%, Aesthetic 20%, Layout 15%
-- **Điểm trung bình**: **`30.0 / 100`**
+## Runtime
 
-### 2. Track I2I (Product Placement & Image Editing)
-- **Dataset**: `50 cases`; **runs hiện có**: `0 cases`
-- **Trọng số**: Product Preservation 30%, Text Accuracy 25%, Aesthetic 20%, BG Integration 15%, Instruction 10%
-- **Điểm trung bình**: **`0.0 / 100`**
+| Metric | Value |
+| :--- | ---: |
+| Mean latency | `0.77s` |
+| P95 latency | `2.13s` |
+| Min / max latency | `0.5s / 2.13s` |
+| Throughput | `77.9 images/min` |
+| Average peak VRAM | `N/A` |
 
-## 📐 PHÂN TÍCH THEO CASE METADATA
+## Breakdown By Case Metadata
 
-| Track | Dimension | Value | Runs | Avg Score | Avg Latency |
-| :--- | :--- | :--- | ---: | ---: | ---: |
-| t2i | category | unknown | 6 | 30.00 | 0.77s |
-| t2i | difficulty | easy | 3 | 30.00 | 1.04s |
-| t2i | difficulty | medium | 3 | 30.00 | 0.50s |
-| t2i | layout | square_1x1 | 3 | 30.00 | 1.04s |
-| t2i | layout | vertical_4x5 | 3 | 30.00 | 0.50s |
-| t2i | output_size | 1024x1024 | 3 | 30.00 | 1.04s |
-| t2i | output_size | 1024x1280 | 3 | 30.00 | 0.50s |
-| t2i | text_length | medium | 3 | 30.00 | 0.50s |
-| t2i | text_length | short | 3 | 30.00 | 1.04s |
+| Track | Dimension | Value | Runs | Avg Score | Avg Coverage | Avg Latency |
+| :--- | :--- | :--- | ---: | ---: | ---: | ---: |
+| t2i | category | unknown | 6 | - | - | 0.77s |
+| t2i | difficulty | easy | 3 | - | - | 1.04s |
+| t2i | difficulty | medium | 3 | - | - | 0.5s |
+| t2i | layout | square_1x1 | 3 | - | - | 1.04s |
+| t2i | layout | vertical_4x5 | 3 | - | - | 0.5s |
+| t2i | output_size | 1024x1024 | 3 | - | - | 1.04s |
+| t2i | output_size | 1024x1280 | 3 | - | - | 0.5s |
+| t2i | text_length | medium | 3 | - | - | 0.5s |
+| t2i | text_length | short | 3 | - | - | 1.04s |
 
----
+## Output Files
 
-*Báo cáo được khởi tạo tự động bởi hệ thống TendooBizEval-Vi Framework.*
+- `report.csv`: one row per run, including raw metrics, availability status, methods, score coverage and composite score.
+- `result.jsonl`: full run records, including metric provenance and generated image paths.

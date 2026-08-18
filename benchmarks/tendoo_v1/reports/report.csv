@@ -1,7 +1,7 @@
-case_id,track,seed,status,category,layout,difficulty,output_size,text_length,cer,ned,exact_match,product_sim,latency_s,peak_vram_gb,composite_score
-t2i_001,t2i,42,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,0.0,0.0,None,2.13,0.0,30.0
-t2i_001,t2i,43,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,0.0,0.0,None,0.5,0.0,30.0
-t2i_001,t2i,44,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,0.0,0.0,None,0.5,0.0,30.0
-t2i_002,t2i,42,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,0.0,0.0,None,0.5,0.0,30.0
-t2i_002,t2i,43,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,0.0,0.0,None,0.5,0.0,30.0
-t2i_002,t2i,44,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,0.0,0.0,None,0.5,0.0,30.0
+case_id,track,seed,status,category,layout,difficulty,output_size,text_length,cer,wer,ned,exact_match_ratio,product_similarity,prompt_alignment,aesthetic_score,score_coverage,composite_score,latency_s,peak_vram_gb,ocr_status,ocr_method,alignment_status,alignment_method,aesthetic_status,aesthetic_method,preservation_status,preservation_method
+t2i_001,t2i,42,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,1.0,0.0,0.0,,0.7477,0.7261,0,30.0,2.13,0.0,,,,,,,,
+t2i_001,t2i,43,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,1.0,0.0,0.0,,0.7489,0.7262,0,30.0,0.5,0.0,,,,,,,,
+t2i_001,t2i,44,FAIL_TEXT,unknown,square_1x1,easy,1024x1024,short,1.0,1.0,0.0,0.0,,0.7495,0.7263,0,30.0,0.5,0.0,,,,,,,,
+t2i_002,t2i,42,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,1.0,0.0,0.0,,0.7516,0.7264,0,30.0,0.5,0.0,,,,,,,,
+t2i_002,t2i,43,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,1.0,0.0,0.0,,0.7522,0.7265,0,30.0,0.5,0.0,,,,,,,,
+t2i_002,t2i,44,FAIL_TEXT,unknown,vertical_4x5,medium,1024x1280,medium,1.0,1.0,0.0,0.0,,0.752,0.7266,0,30.0,0.5,0.0,,,,,,,,

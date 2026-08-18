@@ -16,7 +16,7 @@ from evaluate_ocr import evaluate_texts, calculate_cer, calculate_ned
 from evaluate_image_editing import evaluate_image_similarity
 from evaluate_visual import evaluate_prompt_alignment, evaluate_aesthetic_score
 from generate import generate_benchmark_sample
-from report import calculate_composite_score, generate_reports
+from report import calculate_score_details, generate_reports
 
 SEEDS = [42, 43, 44]
 
@@ -70,10 +70,11 @@ def run_benchmark(max_cases: int = None):
                     "latency_seconds": 0.0,
                     "status": "PENDING_REFERENCE",
                     "metrics": {
-                        "cer": 1.0, "wer": 1.0, "ned": 0.0,
-                        "exact_match_ratio": 0.0, "product_similarity": 0.0,
-                        "prompt_alignment": 0.5, "aesthetic_score": 0.5,
-                        "composite_score": 0.0
+                        "cer": None, "wer": None, "ned": None,
+                        "exact_match_ratio": None, "product_similarity": None,
+                        "prompt_alignment": None, "aesthetic_score": None,
+                        "metric_status": "pending_reference", "composite_score": 0.0,
+                        "score_coverage": 0.0
                     }
                 })
             continue
@@ -90,20 +91,23 @@ def run_benchmark(max_cases: int = None):
                 ref_image=ref_img
             )
             
-            # 3. Đánh giá OCR (VietOCR nhận diện chữ từ ảnh)
+            # 3. Đánh giá OCR tiếng Việt bằng PaddleOCR
             text_res = evaluate_texts(detected_text="", required_texts=req_texts, image_path=out_img_path)
             
             # 4. Đánh giá I2I Image Similarity (Product Identity Preservation)
-            prod_sim = evaluate_image_similarity(ref_img, out_img_path) if track == "i2i" else None
+            prod_res = evaluate_image_similarity(ref_img, out_img_path, return_details=True) if track == "i2i" else None
             
             # 5. Đánh giá Visual Quality (Prompt Alignment & Aesthetic Score)
-            prompt_align = evaluate_prompt_alignment(prompt, out_img_path)
-            aesthetic_score = evaluate_aesthetic_score(out_img_path)
+            align_res = evaluate_prompt_alignment(prompt, out_img_path, return_details=True)
+            aesthetic_res = evaluate_aesthetic_score(out_img_path, return_details=True)
+            prod_sim = prod_res["score"] if prod_res else None
+            prompt_align = align_res["score"]
+            aesthetic_score = aesthetic_res["score"]
 
             # 6. Xác định Status
             if text_res["is_fail_text"]:
                 status = "FAIL_TEXT"
-            elif track == "i2i" and prod_sim and prod_sim < 0.60:
+            elif track == "i2i" and prod_sim is not None and prod_sim < 0.60:
                 status = "FAIL_IDENTITY"
             else:
                 status = "PASS"
@@ -116,10 +120,17 @@ def run_benchmark(max_cases: int = None):
                 "product_similarity": prod_sim,
                 "prompt_alignment": prompt_align,
                 "aesthetic_score": aesthetic_score,
+                "metric_provenance": {
+                    "ocr": {"status": text_res["ocr_status"], "method": text_res["ocr_method"]},
+                    "alignment": align_res,
+                    "aesthetic": aesthetic_res,
+                    "product_similarity": prod_res,
+                },
             }
             
-            composite = calculate_composite_score(track, metrics)
-            metrics["composite_score"] = composite
+            score_details = calculate_score_details(track, metrics)
+            metrics["composite_score"] = score_details["score"]
+            metrics["score_coverage"] = score_details["coverage"]
             
             results.append({
                 "case_id": cid,
@@ -132,7 +143,7 @@ def run_benchmark(max_cases: int = None):
                 "metrics": metrics
             })
             
-            print(f"[{run_count}/{total_runs}] Case: {cid} | Track: {track.upper()} | Seed: {seed} | Status: {status} | CER: {text_res['cer']} | Alignment: {prompt_align} | Score: {composite}")
+            print(f"[{run_count}/{total_runs}] Case: {cid} | Track: {track.upper()} | Seed: {seed} | Status: {status} | CER: {text_res['cer']} | Alignment: {prompt_align} | Score: {score_details['score']} | Coverage: {score_details['coverage']:.0%}")
 
     # 7. Ghi kết quả và xuất báo cáo
     results_jsonl = "benchmarks/tendoo_v1/outputs/result.jsonl"

@@ -1,102 +1,111 @@
-"""
-Module đánh giá Thẩm mỹ & Độ khớp Yêu cầu (Visual Quality & Prompt Alignment):
-- Tính CLIP Score (Text-Image Cosine Alignment)
-- Tính Aesthetic Score (Chất lượng thị giác & độ sắc nét)
+"""Reference-backed visual metrics for T2I evaluation.
+
+VQAScore is used for prompt-image alignment and the LAION aesthetic predictor
+is used for image quality. Failed optional models are reported as unavailable;
+there is deliberately no numeric heuristic fallback.
 """
 
-import sys
 import os
+import sys
 
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-_clip_visual_model = None
-_clip_visual_processor = None
+_vqa_scorer = None
+_vqa_failed = False
+_aesthetic_model = None
+_aesthetic_failed = False
 
-def get_clip_visual_evaluator():
-    global _clip_visual_model, _clip_visual_processor
-    if _clip_visual_model is None:
+
+def _unavailable(reason: str) -> dict:
+    return {"score": None, "status": "unavailable", "method": None, "reason": reason}
+
+
+def get_vqascore_evaluator():
+    global _vqa_scorer, _vqa_failed
+    if _vqa_scorer is None and not _vqa_failed:
         try:
-            from transformers import CLIPProcessor, CLIPModel
             import torch
-            model_id = "openai/clip-vit-base-patch32"
-            _clip_visual_processor = CLIPProcessor.from_pretrained(model_id)
-            _clip_visual_model = CLIPModel.from_pretrained(model_id)
+            import t2v_metrics
+
+            model = os.getenv("TENDOO_VQASCORE_MODEL", "clip-flant5-xl")
+            _vqa_scorer = t2v_metrics.VQAScore(
+                model=model,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        except Exception as exc:
+            _vqa_failed = True
+            print(f"[benchmark] VQAScore unavailable: {exc}")
+    return _vqa_scorer
+
+
+def evaluate_prompt_alignment(prompt: str, image_path: str, return_details: bool = False):
+    if not image_path or not os.path.exists(image_path):
+        result = _unavailable("output image does not exist")
+    else:
+        scorer = get_vqascore_evaluator()
+        if scorer is None:
+            result = _unavailable("t2v_metrics/VQAScore is not installed or failed to load")
+        else:
+            try:
+                raw = scorer(images=[image_path], texts=[prompt])
+                score = float(raw[0][0] if getattr(raw, "ndim", 1) == 2 else raw[0])
+                result = {"score": round(max(0.0, min(1.0, score)), 4),
+                          "status": "measured", "method": "VQAScore", "reason": None}
+            except Exception as exc:
+                result = _unavailable(f"VQAScore failed: {exc}")
+    return result if return_details else result["score"]
+
+
+def get_aesthetic_evaluator():
+    """Load LAION's published linear aesthetic predictor on CLIP embeddings."""
+    global _aesthetic_model, _aesthetic_failed
+    if _aesthetic_model is None and not _aesthetic_failed:
+        try:
+            import torch
+            import open_clip
+
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                "ViT-L-14", pretrained="openai"
+            )
+            predictor_path = os.getenv("TENDOO_AESTHETIC_WEIGHTS")
+            if not predictor_path or not os.path.exists(predictor_path):
+                raise RuntimeError("set TENDOO_AESTHETIC_WEIGHTS to the LAION predictor .pth file")
+            predictor = torch.nn.Linear(768, 1)
+            predictor.load_state_dict(torch.load(predictor_path, map_location="cpu"))
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
-            _clip_visual_model.to(device)
-            _clip_visual_model.eval()
-        except Exception:
-            _clip_visual_model = False
-            _clip_visual_processor = False
-    return _clip_visual_model, _clip_visual_processor
+            _aesthetic_model = (model.to(device).eval(), preprocess, predictor.to(device).eval(), device)
+        except Exception as exc:
+            _aesthetic_failed = True
+            print(f"[benchmark] LAION aesthetic predictor unavailable: {exc}")
+    return _aesthetic_model
 
-def evaluate_prompt_alignment(prompt: str, image_path: str) -> float:
-    """Tính điểm khớp giữa Prompt văn bản và Ảnh xuất ra (CLIP Score 0.0 - 1.0)."""
+
+def evaluate_aesthetic_score(image_path: str, return_details: bool = False):
     if not image_path or not os.path.exists(image_path):
-        return 0.50
-        
-    model, processor = get_clip_visual_evaluator()
-    if model and processor:
-        try:
-            from PIL import Image
-            import torch
-            import torch.nn.functional as F
+        result = _unavailable("output image does not exist")
+    else:
+        evaluator = get_aesthetic_evaluator()
+        if evaluator is None:
+            result = _unavailable("LAION aesthetic predictor is not installed/configured")
+        else:
+            try:
+                import torch
+                from PIL import Image
 
-            img = Image.open(image_path).convert('RGB')
-            # Cắt ngắn prompt nếu quá dài và bật truncation=True cho CLIP
-            short_prompt = prompt[:200]
-            inputs = processor(text=[short_prompt], images=img, return_tensors="pt", padding=True, truncation=True, max_length=77)
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+                model, preprocess, predictor, device = evaluator
+                image = preprocess(Image.open(image_path).convert("RGB")).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    embedding = model.encode_image(image)
+                    embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+                    raw = float(predictor(embedding.float()).item())
+                result = {"score": round(max(0.0, min(1.0, (raw - 1.0) / 9.0)), 4),
+                          "raw_score": round(raw, 4), "status": "measured",
+                          "method": "LAION-Aesthetics-Predictor", "reason": None}
+            except Exception as exc:
+                result = _unavailable(f"LAION aesthetic predictor failed: {exc}")
+    return result if return_details else result["score"]
 
-            with torch.no_grad():
-                outputs = model(**inputs)
-                image_embeds = F.normalize(outputs.image_embeds, p=2, dim=-1)
-                text_embeds = F.normalize(outputs.text_embeds, p=2, dim=-1)
-                sim = torch.sum(image_embeds * text_embeds).item()
-                # CLIP cosine similarity cho text-image nằm trong khoảng 0.15 - 0.35, scale lên 0.6 - 0.95
-                scaled_score = max(0.40, min(1.0, float((sim - 0.15) / 0.20 * 0.40 + 0.60)))
-                return round(scaled_score, 4)
-        except Exception as e:
-            pass
-
-    # Heuristic fallback dựa trên độ phân giải & dung lượng ảnh
-    try:
-        size = os.path.getsize(image_path)
-        if size > 10000:
-            return 0.82
-    except Exception:
-        pass
-    return 0.75
-
-def evaluate_aesthetic_score(image_path: str) -> float:
-    """Tính điểm chất lượng thẩm mỹ, ánh sáng & độ sắc nét (0.0 - 1.0)."""
-    if not image_path or not os.path.exists(image_path):
-        return 0.50
-
-    try:
-        import cv2
-        import numpy as np
-
-        img_cv = cv2.imread(image_path)
-        if img_cv is not None:
-            gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-            # Biến thiên Laplacian đo độ sắc nét (Sharpness / Variance of Laplacian)
-            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            
-            # Tính tương phản (Standard deviation of pixel intensities)
-            std_dev = np.std(gray)
-            
-            # Map laplacian variance & std_dev thành điểm thẩm mỹ 0.60 - 0.95
-            sharp_score = min(1.0, laplacian_var / 500.0)
-            contrast_score = min(1.0, std_dev / 75.0)
-            
-            score = 0.60 + (sharp_score * 0.20) + (contrast_score * 0.15)
-            return round(max(0.50, min(0.98, float(score))), 4)
-    except Exception:
-        pass
-
-    return 0.80
 
 if __name__ == "__main__":
-    print("Module evaluate_visual đã sẵn sàng.")
+    print("Visual benchmark metrics ready: VQAScore + LAION-Aesthetics.")

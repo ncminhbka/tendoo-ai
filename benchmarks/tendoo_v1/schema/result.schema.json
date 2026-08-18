@@ -25,14 +25,16 @@
     "metrics": {
       "type": "object",
       "properties": {
-        "cer": { "type": "number" },
-        "wer": { "type": "number" },
-        "ned": { "type": "number" },
-        "exact_match_ratio": { "type": "number" },
+        "cer": { "type": ["number", "null"] },
+        "wer": { "type": ["number", "null"] },
+        "ned": { "type": ["number", "null"] },
+        "exact_match_ratio": { "type": ["number", "null"] },
         "product_similarity": { "type": ["number", "null"] },
         "prompt_alignment": { "type": ["number", "null"] },
         "aesthetic_score": { "type": ["number", "null"] },
-        "composite_score": { "type": "number" }
+        "composite_score": { "type": "number" },
+        "score_coverage": { "type": "number" },
+        "metric_provenance": { "type": "object" }
       }
     }
   }
