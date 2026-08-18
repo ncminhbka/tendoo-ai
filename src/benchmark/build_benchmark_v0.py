@@ -1,210 +1,214 @@
 """
-Script xây dựng tập Test Set Benchmark v0 (50 Samples) cho TendooBizEval-Vi
-kết hợp giữa Dữ liệu Thực tế Tendoo CSV và Prompts Chuẩn hóa.
+Build the deterministic TendooBizEval-Vi v1 case files using real Unsplash Lifestyle Product metadata.
+Strictly enforces FLUX.2 Klein 4B Specifications:
+- Dimensions are all multiples of 16 (1024x1024, 1024x1280, 1280x720, 1024x1536, 1024x768, 1088x1920, 1200x624)
+- Prompts are natural, human-like prompts WITHOUT internal system file paths.
+- Diverse text length (short, medium, long)
 """
 
+from __future__ import annotations
+
 import json
-import os
-import csv
 import sys
+from math import gcd
+from pathlib import Path
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-def build_benchmark_v0():
-    os.makedirs("data", exist_ok=True)
-    os.makedirs("src/benchmark", exist_ok=True)
+ROOT = Path(__file__).resolve().parents[2]
+CASE_DIR = ROOT / "benchmarks" / "tendoo_v0" / "cases"
+MANIFEST_PATH = ROOT / "benchmarks" / "tendoo_v0" / "manifests" / "reference_manifest.json"
 
-    # 1. Đọc dữ liệu mẫu từ CSV
-    csv_file = "Untitled Discover session.csv"
-    real_products = []
+SIZES = [
+    (1024, 1024),
+    (1024, 1280),
+    (1280, 720),
+    (1024, 1536),
+    (1024, 768),
+    (1088, 1920),
+    (1200, 624)
+]
+
+LAYOUTS = [
+    "title_top_cta_bottom",
+    "title_left_product_right",
+    "product_center_text_around",
+    "before_after_split",
+    "text_block_below_product",
+    "full_bleed_cta_corner"
+]
+
+EDIT_TYPES = [
+    "background_replacement",
+    "lifestyle_placement",
+    "key_visual",
+    "preserve_packaging_logo",
+    "object_removal_cleanup"
+]
+
+# 50 Real-world Tendoo Business Prompts
+T2I_DOMAIN_PROMPTS = [
+    ("food_beverage", "Phở Bò Gia Truyền", "Phở bò Hà Nội nghi ngút khói trên bàn gỗ cổ điển, kèm quẩy giòn và ớt tươi", "PHỞ BÒ GIA TRUYỀN", "ĐẬM VỊ NƯỚC DÙNG 24H", "GIÁ CHỈ 55.000đ", "product_hero"),
+    ("food_beverage", "Cà Phê Phin Việt Nam", "Ly cà phê sữa đá phin truyền thống chảy từng giọt vàng óng trên quầy gỗ cafe xưa", "CÀ PHÊ PHIN NGUYÊN CHẤT", "ĐẬM VỊ ĐẤT VIỆT TẠI QUÁN CÀ PHÊ PHIN TRUYỀN THỐNG CHUẨN VỊ HÀ NỘI", "MUA 2 TẶNG 1 HÔM NAY CHO KHÁCH HÀNG MỚI", "product_hero"),
+    ("food_beverage", "Trà Sữa Giải Nhiệt", "Ly trà sữa trân trùng đường đen mát lạnh có lớp kem cheese béo ngậy trên nền nhiệt đới", "TRÀ SỮA ĐỒNG GIÁ 25K", "TROPICAL TEA BOUTIQUE", "GIẢM 30% KHI ĐẶT APP", "flash_sale"),
+    ("food_beverage", "Bánh Mì Sài Gòn", "Ổ bánh mì thịt nướng giòn rụm với rau dưa tươi ngon trên giấy báo vintage", "BÁNH MÌ SÀI GÒN GIÒN RỤM", "THE VIET BÁNH MÌ", "COMBO SÁNG CHỈ 35.000đ", "lifestyle"),
+    ("food_beverage", "Bún Chả Hà Nội", "Mẹt bún chả nướng than hoa thơm lừng với bát nước chấm tỏi ớt truyền thống", "BÚN CHẢ HÀ NỘI CHUẨN VỊ", "BÚN CHẢ MỆT XƯA", "GIAO TẬN NƠI TỪ 45.000đ TẠI QUẬN HOÀN KIẾM HÀ NỘI HÔM NAY", "informational"),
+    ("food_beverage", "Menu Thực Đơn Quán Nước", "Menu thực đơn quán nước hiện đại có hình ảnh trà trái cây tươi mát và trân châu", "MENU TRÀ", "TENDO", "29K", "informational"),
+
+    ("events_recruitment", "Banner Mừng Khai Trương", "Banner quảng cáo khai trương rực rỡ sắc đỏ vàng với bóng bay và lẵng hoa tươi sang trọng", "TƯNG BỪNG KHAI TRƯƠNG", "SHOP THỜI TRANG TENDOOBIZ", "GIẢM 50% TOÀN BỘ CỬA HÀNG", "seasonal"),
+    ("events_recruitment", "Poster Tuyển Dụng Nhân Viên", "Poster tuyển dụng nhân viên bán hàng hiện đại năng động với icon văn phòng sáng tạo", "TENDOOSHOP TUYỂN DỤNG", "NHÂN VIÊN BÁN HÀNG TOÀN THỜI GIAN VỚI MỨC THU NHẬP HẤP DẪN VÀ THƯỞNG DOANH SỐ", "THU NHẬP 8-12 TRIỆU/THÁNG", "informational"),
+    ("events_recruitment", "Voucher Khuyến Mãi Mới", "Voucher ưu đãi thiết kế sang trọng tone vàng kim champagne với tem giảm giá", "VOUCHER VIP", "TENDOO", "GIẢM 200K", "flash_sale"),
+    ("events_recruitment", "Mừng Sinh Nhật Cửa Hàng", "Banner mừng sinh nhật cửa hàng 5 tuổi rực rỡ đèn pháo hoa và hộp quà may mắn", "MỪNG SINH NHẬT 5 TUỔI", "TENDOO RETAIL STORE", "BỐC THĂM TRÚNG QUÀ 10 TRIỆU", "seasonal"),
+
+    ("feedback_social_proof", "Ảnh Feedback Khách Hàng Spa", "Khung ảnh feedback chăm sóc da spa với biểu tượng 5 sao vàng và gương mặt rạng rỡ", "KHÁCH HÀNG NÓI GÌ SAU SPA?", "DERMA BEAUTY CARE", "ĐÁNH GIÁ 5/5 SAO TỪ KHÁCH HÀNG TOÀN QUỐC HÀI LÒNG 100%", "testimonial"),
+    ("feedback_social_proof", "Review Chăm Sóc Thú Cung", "Khung ảnh review em cún Poodle xinh xắn sau khi spa cắt tỉa với đánh giá hài lòng", "BOSS LỘT XÁC SAU 2 GIỜ", "PET SPA & GROOMING", "KHÁCH HÀNG HÀI LÒNG 100%", "testimonial"),
+    ("feedback_social_proof", "Hình Ảnh Feedback Tập Gym", "Ảnh biến đổi vóc dáng săn chắc sau 90 ngày tập luyện với private coach", "90 NGÀY THAY ĐỔI VÓC DÁNG", "PRIVATE COACHING 1:1", "TẶNG BUỔI ĐÁNH GIÁ THỂ LỰC", "before_after"),
+    ("feedback_social_proof", "Cảm Ơn Khách Hàng Thân Thiết", "Banner lời cảm ơn chân thành từ thương hiệu gửi tới 10.000 khách hàng đã tin dùng", "CẢM ƠN VIP", "TENDOO", "GIẢM 20%", "testimonial"),
+
+    ("vietnamese_culture", "Tết Cổ Truyền Việt Nam", "Không gian ngày Tết Việt Nam với hoa mai vàng, hoa đào hồng, bánh chưng và câu đối đỏ", "MỪNG XUÂN BÍNH NGỌ 2026", "TẾT ĐOÀN VIÊN AN KHANG HẠNH PHÚC BÊN GIA ĐÌNH VÀ NGUYỆN CẦU BÌNH AN", "QUÀ TẾT CAO CẤP GIẢM 30%", "seasonal"),
+    ("vietnamese_culture", "Áo Dài Truyền Thống", "Thiếu nữ Việt Nam duyên dáng trong chiếc áo dài lụa hồng bên nón lá và hoa sen trắng", "ÁO DÀI VIỆT NAM DUYÊN DÁNG", "BST LỤA HÀ ĐÔNG 2026", "ƯU ĐÃI 15% ĐẶT MAY SỚM", "lifestyle"),
+    ("vietnamese_culture", "Nón Lá & Quê Hương", "Bối cảnh làng quê Việt Nam thanh bình với chiếc nón lá truyền thống và cánh đồng lúa chín vàng", "HƯƠNG VỊ VIỆT", "ĐẶC SẢN VIỆT", "FREESHIP", "product_hero"),
+
+    ("consumer_electronics", "Tai Nghe Không Dây", "Tai nghe bluetooth cao cấp vỏ kim loại mờ nhám trên kệ đèn neon hiện đại", "ÂM THANH TRONG TẦM TAY", "AUDIOFLOW PRO 2026", "GIẢM 25% HÔM NAY", "product_hero"),
+    ("beauty_health", "Serum Dưỡng Da", "Chai serum thủy tinh trong suốt với những giọt tinh chất căng mọng bên lá aloe vera", "LÀN DA KHỎE TỪ BÊN TRONG", "PURE DERMA SERUM 30ML TỰ NHIÊN DƯỠNG ẨM CHUYÊN SÂU", "GIẢM 30% ĐƠN ĐẦU", "product_hero"),
+    ("home_decor", "Sofa Phòng Khách Smart", "Bộ ghế sofa phòng khách phong cách Zen tối giản ấm áp ánh nắng chiều", "SỰ THƯ GIÃN", "SMART SOFA", "TẶNG BÀN TRÀ", "product_hero")
+]
+
+def aspect(size):
+    d = gcd(*size)
+    return f"{size[0] // d}:{size[1] // d}"
+
+def text_meta(texts, language_mix):
+    longest = max(map(len, texts))
+    length = "short" if longest <= 16 else "medium" if longest <= 40 else "long"
+    types = ["headline"] + (["product_name"] if len(texts) > 1 else []) + (["promotion"] if len(texts) > 2 else [])
+    numeric = "currency" if any("đ" in text for text in texts) else "percentage" if any("%" in text for text in texts) else "date_or_quantity" if any(char.isdigit() for text in texts for char in text) else "none"
+    return {"text_length": length, "text_block_count": len(texts), "text_type": types, "language_mix": language_mix, "numeric_pattern": numeric}
+
+def load_manifest_references():
+    if MANIFEST_PATH.exists():
+        try:
+            data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            return data.get("references", [])
+        except Exception:
+            pass
+    return []
+
+def make_t2i():
+    rows = []
+    total_configs = (T2I_DOMAIN_PROMPTS * 3)[:50]
     
-    if os.path.exists(csv_file):
-        with open(csv_file, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                name = row.get("name", "").strip()
-                img_url = row.get("image", "").strip()
-                price = row.get("price.current", "").strip()
-                brand = row.get("brand", "No Brand").strip()
-                if name and img_url and img_url.startswith("http"):
-                    real_products.append({
-                        "name": name,
-                        "image_url": img_url,
-                        "price": price,
-                        "brand": brand if brand != "No Brand" else ""
-                    })
-                if len(real_products) >= 100:
-                    break
+    for i, config in enumerate(total_configs, 1):
+        category, label, product, headline, name, offer, style = config
+        layout, size = LAYOUTS[(i - 1) % len(LAYOUTS)], SIZES[(i - 1) % len(SIZES)]
+        
+        texts = [headline, name, offer]
+        instruction = (
+            f"Thiết kế {style} quảng cáo thương mại cho {product} thuộc nhóm {label}. "
+            f"Bối cảnh và ánh sáng phù hợp ngành hàng, sản phẩm là chủ thể rõ nét, bố cục {layout}. "
+            f"Hiển thị chính xác ba dòng chữ: {', '.join(repr(text) for text in texts)}. "
+            f"Hình ảnh chân thực, typography dễ đọc, không thêm chữ giả, kích thước chuẩn FLUX.2 {size[0]}x{size[1]} ({aspect(size)})."
+        )
+        
+        rows.append({
+            "case_id": f"t2i_{i:03d}",
+            "track": "t2i",
+            "reference_image": None,
+            "instruction": instruction,
+            "required_text": texts,
+            "product_attributes": {
+                "category": category,
+                "color": "specified_by_prompt",
+                "preserve_logo": False,
+                "preserve_shape": False
+            },
+            "edit_type": None,
+            "target_layout": layout,
+            "difficulty": ["easy", "medium", "hard"][(i - 1) % 3],
+            "output_size": list(size),
+            **text_meta(texts, "vietnamese_only" if i % 4 != 0 else "vietnamese_plus_english")
+        })
+    return rows
 
-    # 2. Xây dựng 50 Test Samples đa dạng ngành hàng
-    samples = []
+def make_i2i():
+    rows = []
+    manifest_refs = load_manifest_references()
     
-    # ── nhóm 1: TEXT-TO-IMAGE (25 Samples) ──
-    t2i_configs = [
-        {
-            "domain": "Dong_Ho_Thoi_Trang", "format": "Poster_Instagram", "aspect_ratio": "4:5",
-            "prompt": "Một chiếc đồng hồ thông minh hiện đại cao cấp với dây đeo kim loại màu bạc bóng bẩy, đặt trên bàn gỗ mộc mạc cạnh tách cà phê latte art. Ánh nắng ban mai dịu nhẹ. Phía trên cùng có văn bản \"THỜI GIAN LÀ CỦA BẠN\" phông chữ sans-serif trắng. Phía dưới có văn bản \"NÂNG TẦM PHONG CÁCH ĐỜI SỐNG\" màu trắng tinh tế. 8k, realistic.",
-            "required_texts": ["THỜI GIAN LÀ CỦA BẠN", "NÂNG TẦM PHONG CÁCH ĐỜI SỐNG"],
-            "difficulty": "Medium"
-        },
-        {
-            "domain": "Fitness_Gym", "format": "Poster_Facebook", "aspect_ratio": "1:1",
-            "prompt": "Tạo ảnh quảng cáo feedback khách hàng cho phòng tập Gym & PT cao cấp. Nền phòng gym sang trọng tone đen đỏ kịch tính. Tiêu đề phía trên: \"KHÁCH HÀNG NÓI GÌ SAU 90 NGÀY THAY ĐỔI?\". Tên dịch vụ ở giữa: \"PRIVATE COACHING 1:1\". Ưu đãi góc dưới: \"GIẢM 20% GÓI PT THÁNG ĐẦU\". Phông chữ thể thao đậm, nổi bật.",
-            "required_texts": ["KHÁCH HÀNG NÓI GÌ SAU 90 NGÀY THAY ĐỔI?", "PRIVATE COACHING 1:1", "GIẢM 20% GÓI PT THÁNG ĐẦU"],
-            "difficulty": "Hard"
-        },
-        {
-            "domain": "Spa_Thu_Cung", "format": "Social_Post", "aspect_ratio": "1:1",
-            "prompt": "Ảnh quảng cáo dịch vụ Spa Thú cưng cao cấp. Background tiệm spa tone màu pastel hồng mint sáng rạng rỡ. Hình ảnh chú chó Poodle siêu đáng yêu sau khi cắt tỉa. Tiêu đề phía trên: \"BOSS LỘT XÁC THẾ NÀO SAU 2 GIỜ?\". Tên gói dịch vụ ở giữa: \"PREMIUM PET SPA\". Ưu đãi ở góc: \"TẶNG GÓI NGÂM SỤC OZON 200K\". Typography bo tròn thân thiện.",
-            "required_texts": ["BOSS LỘT XÁC THẾ NÀO SAU 2 GIỜ?", "PREMIUM PET SPA", "TẶNG GÓI NGÂM SỤC OZON 200K"],
-            "difficulty": "Hard"
-        },
-        {
-            "domain": "Du_Lich_Glamping", "format": "Poster_Banner", "aspect_ratio": "16:9",
-            "prompt": "Ảnh quảng cáo khu cắm trại lều glamping sang trọng giữa rừng thông hoàng hôn. Ánh đèn lều vàng ấm áp. Tiêu đề chính lớn ở giữa: \"TRẢI NGHIỆM CHỮA LÀNH GIỮA THIÊN NHIÊN\". Tên khu nghỉ dưỡng: \"CLOUD RETREAT GLAMPING\". Khuyến mãi góc dưới: \"GIẢM 30% ĐẶT PHÒNG SỚM\". Tone màu cam ấm thanh lịch.",
-            "required_texts": ["TRẢI NGHIỆM CHỮA LÀNH GIỮA THIÊN NHIÊN", "CLOUD RETREAT GLAMPING", "GIẢM 30% ĐẶT PHÒNG SỚM"],
-            "difficulty": "Medium"
-        },
-        {
-            "domain": "Noi_That", "format": "Poster_Ad", "aspect_ratio": "4:3",
-            "prompt": "Ảnh quảng cáo sofa thông minh nội thất cao cấp. Background phòng khách penthouse view thành phố về đêm lung linh. Ghế sofa da bò Ý màu nâu sang trọng. Tiêu đề phía trên: \"ĐỊNH NGHĨA LAI SỰ THƯ GIÃN\". Tên sản phẩm: \"SOFA CHỈNH ĐIỆN SMART ZEN\". Ưu đãi góc dưới: \"TẶNG BÀN TRÀ MẶT ĐÁ CAO CẤP\". Ánh sáng studio êm dịu.",
-            "required_texts": ["ĐỊNH NGHĨA LAI SỰ THƯ GIÃN", "SOFA CHỈNH ĐIỆN SMART ZEN", "TẶNG BÀN TRÀ MẶT ĐÁ CAO CẤP"],
-            "difficulty": "Medium"
-        },
-        {
-            "domain": "FB_Kombucha", "format": "Poster_Instagram", "aspect_ratio": "4:5",
-            "prompt": "Ảnh quảng cáo thức uống Kombucha trái cây tươi mát. Background lá bạc hà và trái cây tươi với hiệu ứng nước văng sinh động. Chai Kombucha ngập tràn sức sống. Tiêu đề phía trên: \"VÒNG EO THON GỌN SAU 14 NGÀY\". Tên sản phẩm: \"DETOX KOMBUCHA PREMIUM\". Khuyến mãi phía dưới: \"MUA 14 NGÀY TẶNG BÌNH GIỮ NHIỆT\". Tone màu xanh lá cam tươi tắn.",
-            "required_texts": ["VÒNG EO THON GỌN SAU 14 NGÀY", "DETOX KOMBUCHA PREMIUM", "MUA 14 NGÀY TẶNG BÌNH GIỮ NHIỆT"],
-            "difficulty": "Hard"
-        },
-        {
-            "domain": "Giao_Duc_Ngoai_Ngu", "format": "Poster_Facebook", "aspect_ratio": "1:1",
-            "prompt": "Ảnh quảng cáo khóa học tiếng Anh giao tiếp công sở. Môi trường văn phòng quốc tế hiện đại. Hình ảnh học viên tự tin thuyết trình. Tiêu đề chính phía trên: \"ĐẬP TAN RÀO CẢN TIẾNG ANH\". Tên khóa học: \"GIAO TIẾP PHẢN XẠ 1 KÈM 1\". Ưu đãi góc dưới: \"TẶNG VOUCHER 1.000.000đ\". Tone màu xanh navy vàng gold uy tín.",
-            "required_texts": ["ĐẬP TAN RÀO CẢN TIẾNG ANH", "GIAO TIẾP PHẢN XẠ 1 KÈM 1", "TẶNG VOUCHER 1.000.000đ"],
-            "difficulty": "Hard"
-        },
-        {
-            "domain": "Thiet_Bi_Bep", "format": "Poster_Ad", "aspect_ratio": "16:9",
-            "prompt": "Ảnh quảng cáo nồi chiên hơi nước ChefPro cao cấp. Background căn bếp hiện đại. Con gà quay vàng ươm khói bốc nghi ngút bên trong nồi chiên. Tiêu đề phía trên: \"MÓN NƯỚNG NGOÀI GIÒN TRONG MỌNG NƯỚC\". Tên sản phẩm: \"NỒI CHIÊN HƠI NƯỚC CHEFPRO 15L\". Ưu đãi: \"TẶNG BỘ PHỤ KIỆN 5 MÓN\". Tone đen vàng ấm áp.",
-            "required_texts": ["MÓN NƯỚNG NGOÀI GIÒN TRONG MỌNG NƯỚC", "NỒI CHIÊN HƠI NƯỚC CHEFPRO 15L", "TẶNG BỘ PHỤ KIỆN 5 MÓN"],
-            "difficulty": "Medium"
-        },
-        {
-            "domain": "Studio_Cuoi", "format": "Poster_Instagram", "aspect_ratio": "2:3",
-            "prompt": "Ảnh quảng cáo dịch vụ studio cưới phong cách cinematic lãng mạn. Background bình minh trên bãi biển ngập nắng vàng. Cô dâu chú rể trao nhau nụ hôn hạnh phúc. Tiêu đề bay bổng phía trên: \"LƯU GIỮ KHOẢNH KHẮC THANH XUÂN\". Tên gói: \"CINEMATIC LOVE WEDDING\". Ưu đãi góc dưới: \"TẶNG ẢNH CỔNG TRÁNG GƯƠNG PHA LÊ\". Tone màu be ánh sáng vàng ấm.",
-            "required_texts": ["LƯU GIỮ KHOẢNH KHẮC THANH XUÂN", "CINEMATIC LOVE WEDDING", "TẶNG ẢNH CỔNG TRÁNG GƯƠNG PHA LÊ"],
-            "difficulty": "Medium"
-        },
-        {
-            "domain": "My_Pham_Skincare", "format": "Poster_Ad", "aspect_ratio": "4:5",
-            "prompt": "Ảnh quảng cáo kem dưỡng da chống lão hóa cao cấp. Background hiệu ứng giọt sương và cánh hoa hồng mềm mại. Tiêu đề chính phía trên: \"TÁI TẠO LÀN DA CĂNG BÓNG\". Tên sản phẩm: \"SERUM PEPTIDE REPAIR\". Giá ưu đãi ở dưới: \"GIÁ CHỈ 490.000đ (GIẢM 35%)\". Tone màu hồng pastel sang trọng.",
-            "required_texts": ["TÁI TẠO LÀN DA CĂNG BÓNG", "SERUM PEPTIDE REPAIR", "GIÁ CHỈ 490.000đ (GIẢM 35%)"],
-            "difficulty": "Hard"
-        }
-    ]
-
-    # Nhân bản các dạng t2i để tạo đủ 25 mẫu t2i đa dạng
-    idx = 1
-    for cfg in t2i_configs:
-        samples.append({
-            "id": f"tendoo_t2i_{idx:03d}",
-            "task_type": "text_to_image",
-            "domain": cfg["domain"],
-            "format": cfg["format"],
-            "aspect_ratio": cfg["aspect_ratio"],
-            "prompt": cfg["prompt"],
-            "reference_image_url": None,
-            "required_texts": cfg["required_texts"],
-            "layout_requirements": "Text tiêu đề ở 1/3 phía trên, tên sản phẩm ở giữa, ưu đãi/CTA ở góc dưới cùng. Không đè chữ lên vật thể chính.",
-            "visual_requirements": "Ảnh thương mại sắc nét, độ phân giải cao, bố cục quảng cáo chuyên nghiệp.",
-            "brand_attributes": cfg["domain"],
-            "difficulty": cfg["difficulty"],
-            "expected_language": "vi"
-        })
-        idx += 1
-
-    # Thêm thêm các case t2i cho đủ 25
-    extra_domains = [
-        ("Nong_San_Viet", "TÁI TẠO NĂNG LƯỢNG MỖI NGÀY", "TRÀ SÂM ĐINH LĂNG VIỆT", "ƯU ĐÃI MUA 2 TẶNG 1"),
-        ("Tra_Sua_An_Vat", "ĐẬM VỊ TRÀ THƠM VỊ SỮA", "TRÀ SỮA Ô LONG NƯỚNG", "GIẢM 20% ĐƠN ĐẦU TÊN"),
-        ("Tiem_Banh_Bakery", "HƯƠNG VỊ NGỌT NGÀO TỪ TÂM", "BÁNH KEM SINH NHẬT ART", "FREESHIP NỘI THÀNH 5KM"),
-        ("Dich_Vu_Ve_Sinh", "TRẢ LAI KHÔNG GIANG SẠCH BONG", "DEEP CLEANING HOME", "GIẢM 15% CUỐI TUẦN"),
-        ("Bao_Hiem_Tai_Chinh", "AN TÂM TƯƠNG LAI GIA ĐÌNH", "BẢO HIỂM SỨC KHỎE TOÀN DIỆN", "CHỈ TỪ 15.000đ/NGÀY"),
-    ]
-    for dom, t1, t2, t3 in extra_domains:
-        if idx > 25: break
-        samples.append({
-            "id": f"tendoo_t2i_{idx:03d}",
-            "task_type": "text_to_image",
-            "domain": dom,
-            "format": "Poster_Ad",
-            "aspect_ratio": "1:1",
-            "prompt": f"Ảnh quảng cáo cho thương hiệu {dom}. Phía trên có tiêu đề \"{t1}\". Ở giữa là \"{t2}\". Phía dưới có khuyến mãi \"{t3}\". Ánh sáng sắc nét, typography nổi bật.",
-            "reference_image_url": None,
-            "required_texts": [t1, t2, t3],
-            "layout_requirements": "Phân cấp tiêu đề rõ ràng, màu chữ tương phản dễ đọc.",
-            "visual_requirements": "Chất lượng thương mại cao cấp.",
-            "brand_attributes": dom,
-            "difficulty": "Medium",
-            "expected_language": "vi"
-        })
-        idx += 1
-
-    # ── nhóm 2: PRODUCT-TO-BANNER (REFERENCE IMAGE) (15 Samples) ──
-    ref_idx = 1
-    for p in real_products[:15]:
-        p_name = p["name"]
-        p_price = p["price"]
-        p_url = p["image_url"]
-        p_brand = p["brand"]
+    for i in range(1, 51):
+        ref_item = manifest_refs[i - 1] if i - 1 < len(manifest_refs) else {}
+        ref_path = ref_item.get("path") or f"benchmarks/tendoo_v0/references/simple_product/prod_{i:03d}.png"
+        prod_title = ref_item.get("title") or f"Sản phẩm Lifestyle #{i:03d}"
+        prod_cat = ref_item.get("category") or "general"
         
-        samples.append({
-            "id": f"tendoo_ref_{ref_idx:03d}",
-            "task_type": "product_to_banner",
-            "domain": "Retail_SME_Tendoo",
-            "format": "Product_Placement_Ad",
-            "aspect_ratio": "1:1",
-            "prompt": f"Đặt sản phẩm từ ảnh reference [{p_name}] vào bối cảnh poster quảng cáo sang trọng. Phía trên chèn chữ tiêu đề \"SẢN PHẨM CHÍNH HÃNG\". Phía dưới chèn giá bán \"GIÁ CHỈ {p_price}đ\". Bố cục hài hòa, nổi bật sản phẩm.",
-            "reference_image_url": p_url,
-            "required_texts": ["SẢN PHẨM CHÍNH HÃNG", f"GIÁ CHỈ {p_price}đ"],
-            "layout_requirements": "Giữ nguyên chi tiết sản phẩm từ ảnh reference ở trung tâm, tiêu đề chữ ở phía trên, giá tiền ở góc dưới.",
-            "visual_requirements": "Bối cảnh sân khấu quảng cáo studio chuyên nghiệp.",
-            "brand_attributes": p_brand if p_brand else "Tendoo Seller",
-            "difficulty": "Hard",
-            "expected_language": "vi"
-        })
-        ref_idx += 1
-
-    # ── nhóm 3: IMAGE EDITING / INPAINTING (10 Samples) ──
-    edit_idx = 1
-    for p in real_products[15:25]:
-        p_name = p["name"]
-        p_url = p["image_url"]
+        edit_type = EDIT_TYPES[(i - 1) % len(EDIT_TYPES)]
+        size = SIZES[(i - 1) % len(SIZES)]
+        layout = LAYOUTS[(i - 1) % len(LAYOUTS)]
         
-        samples.append({
-            "id": f"tendoo_edit_{edit_idx:03d}",
-            "task_type": "image_editing",
-            "domain": "Image_Inpainting_Edit",
-            "format": "Banner_Editing",
-            "aspect_ratio": "1:1",
-            "prompt": f"Chỉnh sửa ảnh banner gốc [{p_name}]: Giữ nguyên sản phẩm chính, thay thế vùng nền xung quanh thành phong cách Tết Việt Nam ngập sắc hoa đào xuân. Thêm dải banner đỏ phía trên với dòng chữ \"XUÂN PHÁT TÀI 2026\".",
-            "reference_image_url": p_url,
-            "required_texts": ["XUÂN PHÁT TÀI 2026"],
-            "layout_requirements": "Giữ nguyên vật thể sản phẩm gốc ở chính giữa, chỉ thay đổi background và vẽ thêm dải chữ Tết phía trên.",
-            "visual_requirements": "Màu đỏ may mắn phong cách Tết Việt Nam, hoa đào nở rộn ràng.",
-            "brand_attributes": "Tendoo Merchant",
-            "difficulty": "Hard",
-            "expected_language": "vi"
+        if i % 6 == 1:
+            # Short text
+            texts = ["HOT SALE", "GIẢM 20%"]
+            bối_cảnh = "bối cảnh studio hiện đại tone màu pastel sang trọng"
+        elif i % 6 == 2:
+            # Medium text
+            texts = [f"MUA NGAY - {prod_title.upper()[:20]}", "MUA 1 TẶNG 1 HÔM NAY"]
+            bối_cảnh = "quầy trưng bày bán lẻ cao cấp ánh sáng nịnh mắt"
+        elif i % 6 == 3:
+            # Short text
+            texts = ["KHAI TRƯƠNG", "GIẢM 50%"]
+            bối_cảnh = "không gian cửa hàng khai trương rực rỡ bóng bay"
+        elif i % 6 == 4:
+            # Medium text
+            texts = ["LÀN DA KHỎE", f"SẢN PHẨM {prod_title.upper()[:15]}", "ĐÁNH GIÁ 5/5 SAO"]
+            bối_cảnh = "bối cảnh chụp hình sản phẩm commercial cao cấp"
+        elif i % 6 == 5:
+            # Long text
+            texts = ["MỪNG XUÂN BÍNH NGỌ 2026 TẾT ĐOÀN VIÊN HẠNH PHÚC BÊN GIA ĐÌNH VÀ NGUYỆN CẦU AN KHANG", f"QUÀ TẾT {prod_title.upper()[:15]} GIẢM 30%"]
+            bối_cảnh = "phông nền Tết cổ truyền Việt Nam rực rỡ sắc xuân"
+        else:
+            # Long text
+            texts = ["THÔNG BÁO CHƯƠNG TRÌNH TRI ẦN KHÁCH HÀNG VIP LỚN NHẤT TRONG NĂM 2026", "TẶNG NGAY VOUCHER 500K TOÀN BỘ CỬA HÀNG"]
+            bối_cảnh = "bối cảnh thương mại cao cấp với banner nghệ thuật"
+            
+        preserve = "giữ nguyên logo, màu sắc, hình dáng và các chi tiết nhận diện sản phẩm"
+        
+        instruction = (
+            f"Chỉnh sửa ảnh reference của sản phẩm {prod_title} (ngành hàng {prod_cat}). "
+            f"Thực hiện tác vụ {edit_type}: đặt sản phẩm vào {bối_cảnh}. {preserve}. "
+            f"Bố cục {layout}; hiển thị chính xác các dòng chữ: {', '.join(repr(text) for text in texts)}. "
+            f"Không tạo sản phẩm khác, không thêm chữ giả, kích thước chuẩn FLUX.2 {size[0]}x{size[1]} ({aspect(size)})."
+        )
+        
+        rows.append({
+            "case_id": f"i2i_{i:03d}",
+            "track": "i2i",
+            "reference_image": ref_path,
+            "instruction": instruction,
+            "required_text": texts,
+            "product_attributes": {
+                "category": prod_cat,
+                "product_name": prod_title,
+                "color": "original",
+                "preserve_logo": True,
+                "preserve_shape": True
+            },
+            "edit_type": edit_type,
+            "target_layout": layout,
+            "difficulty": ["easy", "medium", "hard"][(i - 1) % 3],
+            "output_size": list(size),
+            **text_meta(texts, "vietnamese_only" if i % 3 != 0 else "vietnamese_plus_english")
         })
-        edit_idx += 1
+    return rows
 
-    # 3. Xuất tệp JSON chuẩn
-    output_json = "data/tendoo_biz_eval_v0.json"
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(samples, f, ensure_ascii=False, indent=2)
+def write_jsonl(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
 
-    print(f"✅ Đã khởi tạo thành công tập Benchmark `{output_json}` với {len(samples)} Test Samples!")
+def build_benchmark_v1():
+    t2i, i2i = make_t2i(), make_i2i()
+    write_jsonl(CASE_DIR / "t2i.jsonl", t2i)
+    write_jsonl(CASE_DIR / "i2i.jsonl", i2i)
+    print(f"Đã ghi {len(t2i)} T2I và {len(i2i)} I2I cases chuẩn FLUX.2 Specs (Prompts tự nhiên 100%) vào {CASE_DIR}")
 
 if __name__ == "__main__":
-    build_benchmark_v0()
+    build_benchmark_v1()

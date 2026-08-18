@@ -62,6 +62,27 @@
       "items": { "type": "integer" },
       "minItems": 2,
       "maxItems": 2
+    },
+    "text_length": {
+      "type": "string",
+      "enum": ["short", "medium", "long"]
+    },
+    "text_block_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "text_type": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "language_mix": {
+      "type": "string",
+      "enum": ["vietnamese_only", "vietnamese_plus_english"]
+    },
+    "numeric_pattern": {
+      "type": "string",
+      "enum": ["none", "currency", "percentage", "date_or_quantity"]
     }
   }
 }

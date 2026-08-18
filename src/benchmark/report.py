@@ -6,6 +6,7 @@ Xuất báo cáo định dạng report.csv và report.md
 import json
 import os
 import sys
+from collections import Counter, defaultdict
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -56,10 +57,24 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
     i2i_scores = []
     latencies = []
     vrams = []
+    case_metadata = {}
+    for track in ("t2i", "i2i"):
+        case_path = os.path.join("benchmarks", "tendoo_v0", "cases", f"{track}.jsonl")
+        if os.path.exists(case_path):
+            with open(case_path, encoding="utf-8") as case_file:
+                for line in case_file:
+                    if line.strip():
+                        case = json.loads(line)
+                        case_metadata[case["case_id"]] = case
+
+    grouped = defaultdict(lambda: {"runs": 0, "score": [], "latency": []})
+    dataset_counts = {track: sum(1 for case in case_metadata.values() if case.get("track") == track) for track in ("t2i", "i2i")}
+    result_case_counts = {track: len({r.get("case_id") for r in results if r.get("track") == track}) for track in ("t2i", "i2i")}
+    stale_dataset = any(result_case_counts[track] < dataset_counts[track] for track in dataset_counts)
     
     # Ghi CSV
     with open(csv_path, "w", encoding="utf-8") as f:
-        f.write("case_id,track,seed,status,cer,ned,exact_match,product_sim,latency_s,peak_vram_gb,composite_score\n")
+        f.write("case_id,track,seed,status,category,layout,difficulty,output_size,text_length,cer,ned,exact_match,product_sim,latency_s,peak_vram_gb,composite_score\n")
         for r in results:
             cid = r["case_id"]
             track = r["track"]
@@ -69,8 +84,21 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
             lat = r.get("latency_seconds", 0.0)
             vram = r.get("peak_vram_gb", 0.0) or 0.0
             score = m.get("composite_score", 0.0)
-            
-            f.write(f"{cid},{track},{seed},{status},{m.get('cer')},{m.get('ned')},{m.get('exact_match_ratio')},{m.get('product_similarity')},{lat},{vram},{score}\n")
+            case = case_metadata.get(cid, {})
+            attrs = case.get("product_attributes", {})
+            category = attrs.get("category", "unknown")
+            layout = case.get("target_layout", "unknown")
+            difficulty = case.get("difficulty", "unknown")
+            output_size = "x".join(map(str, case.get("output_size", [])))
+            text_length = case.get("text_length", "unknown")
+            f.write(f"{cid},{track},{seed},{status},{category},{layout},{difficulty},{output_size},{text_length},{m.get('cer')},{m.get('ned')},{m.get('exact_match_ratio')},{m.get('product_similarity')},{lat},{vram},{score}\n")
+
+            for dimension, value in (("category", category), ("layout", layout), ("difficulty", difficulty), ("output_size", output_size), ("text_length", text_length)):
+                bucket = grouped[(track, dimension, value)]
+                bucket["runs"] += 1
+                bucket["score"].append(score)
+                if lat > 0:
+                    bucket["latency"].append(lat)
             
             if status == "PASS": pass_runs += 1
             elif status == "FAIL_TEXT": fail_text_runs += 1
@@ -95,10 +123,19 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
     pass_rate = round((pass_runs / max(total_runs, 1)) * 100, 1)
 
     # Ghi Markdown
+    breakdown = []
+    for (track, dimension, value), bucket in sorted(grouped.items()):
+        avg_score = sum(bucket["score"]) / max(len(bucket["score"]), 1)
+        avg_latency = sum(bucket["latency"]) / max(len(bucket["latency"]), 1) if bucket["latency"] else 0.0
+        breakdown.append(f"| {track} | {dimension} | {value} | {bucket['runs']} | {avg_score:.2f} | {avg_latency:.2f}s |")
+    breakdown_table = "\n".join(breakdown) or "| - | - | - | 0 | 0.00 | 0.00s |"
+
     md_content = f"""# BÁO CÁO KẾT QUẢ BENCHMARK TENDOOBIZEVAL-VI (v0)
 
 **Thời gian xuất báo cáo**: {os.popen('date /t').read().strip() if os.name=='nt' else '2026-08-17'}
-**Tổng số lượt chạy (3 Seeds/case)**: `{total_runs}`
+**Tổng số lượt chạy hiện có (3 Seeds/case)**: `{total_runs}`
+**Dataset hiện tại**: `{dataset_counts['t2i']} T2I + {dataset_counts['i2i']} I2I`
+**Trạng thái dữ liệu**: `{'CẦN CHẠY LẠI TOÀN BỘ SAU KHI ĐỔI CASES' if stale_dataset else 'ĐẦY ĐỦ'}`
 
 ---
 
@@ -130,14 +167,20 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
 ## 📋 ĐIỂM CHI TIẾT TỪNG TRACK
 
 ### 1. Track T2I (Text-to-Image Poster Ad)
-- **Số lượng cases**: 50 cases x 3 seeds = 150 runs
+- **Dataset**: `{dataset_counts['t2i']} cases`; **runs hiện có**: `{result_case_counts['t2i']} cases`
 - **Trọng số**: Text Accuracy 40%, Alignment 25%, Aesthetic 20%, Layout 15%
 - **Điểm trung bình**: **`{avg_t2i} / 100`**
 
 ### 2. Track I2I (Product Placement & Image Editing)
-- **Số lượng cases**: 50 cases x 3 seeds = 150 runs
+- **Dataset**: `{dataset_counts['i2i']} cases`; **runs hiện có**: `{result_case_counts['i2i']} cases`
 - **Trọng số**: Product Preservation 30%, Text Accuracy 25%, Aesthetic 20%, BG Integration 15%, Instruction 10%
 - **Điểm trung bình**: **`{avg_i2i} / 100`**
+
+## 📐 PHÂN TÍCH THEO CASE METADATA
+
+| Track | Dimension | Value | Runs | Avg Score | Avg Latency |
+| :--- | :--- | :--- | ---: | ---: | ---: |
+{breakdown_table}
 
 ---
 
@@ -152,4 +195,3 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/repo
 
 if __name__ == "__main__":
     print("Module report đã sẵn sàng.")
-

@@ -1,6 +1,6 @@
 """
 Pipeline chính chạy Benchmark TendooBizEval-Vi v0
-Orchestration: Validate -> Generate (3 Seeds) -> Evaluate OCR & Image Metrics -> Report
+Orchestration: Validate -> Generate (3 Seeds) -> Evaluate OCR, Image Similarity & Visual Quality -> Report
 """
 
 import json
@@ -14,6 +14,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 from validate_dataset import validate_dataset
 from evaluate_ocr import evaluate_texts, calculate_cer, calculate_ned
 from evaluate_image_editing import evaluate_image_similarity
+from evaluate_visual import evaluate_prompt_alignment, evaluate_aesthetic_score
 from generate import generate_benchmark_sample
 from report import calculate_composite_score, generate_reports
 
@@ -71,6 +72,7 @@ def run_benchmark(max_cases: int = None):
                     "metrics": {
                         "cer": 1.0, "wer": 1.0, "ned": 0.0,
                         "exact_match_ratio": 0.0, "product_similarity": 0.0,
+                        "prompt_alignment": 0.5, "aesthetic_score": 0.5,
                         "composite_score": 0.0
                     }
                 })
@@ -88,13 +90,17 @@ def run_benchmark(max_cases: int = None):
                 ref_image=ref_img
             )
             
-            # 3. Đánh giá OCR (VietOCR nhận diện chữ trực tiếp từ file ảnh)
+            # 3. Đánh giá OCR (VietOCR nhận diện chữ từ ảnh)
             text_res = evaluate_texts(detected_text="", required_texts=req_texts, image_path=out_img_path)
             
-            # 4. Đánh giá I2I Image Similarity
+            # 4. Đánh giá I2I Image Similarity (Product Identity Preservation)
             prod_sim = evaluate_image_similarity(ref_img, out_img_path) if track == "i2i" else None
             
-            # 5. Xác định Status
+            # 5. Đánh giá Visual Quality (Prompt Alignment & Aesthetic Score)
+            prompt_align = evaluate_prompt_alignment(prompt, out_img_path)
+            aesthetic_score = evaluate_aesthetic_score(out_img_path)
+
+            # 6. Xác định Status
             if text_res["is_fail_text"]:
                 status = "FAIL_TEXT"
             elif track == "i2i" and prod_sim and prod_sim < 0.60:
@@ -108,8 +114,8 @@ def run_benchmark(max_cases: int = None):
                 "ned": text_res["ned"],
                 "exact_match_ratio": text_res["exact_match_ratio"],
                 "product_similarity": prod_sim,
-                "prompt_alignment": 0.85,
-                "aesthetic_score": 0.82,
+                "prompt_alignment": prompt_align,
+                "aesthetic_score": aesthetic_score,
             }
             
             composite = calculate_composite_score(track, metrics)
@@ -126,9 +132,9 @@ def run_benchmark(max_cases: int = None):
                 "metrics": metrics
             })
             
-            print(f"[{run_count}/{total_runs}] Case: {cid} | Track: {track.upper()} | Seed: {seed} | Status: {status} | Score: {composite}")
+            print(f"[{run_count}/{total_runs}] Case: {cid} | Track: {track.upper()} | Seed: {seed} | Status: {status} | CER: {text_res['cer']} | Alignment: {prompt_align} | Score: {composite}")
 
-    # 6. Ghi kết quả và xuất báo cáo
+    # 7. Ghi kết quả và xuất báo cáo
     results_jsonl = "benchmarks/tendoo_v0/outputs/result.jsonl"
     os.makedirs(os.path.dirname(results_jsonl), exist_ok=True)
     with open(results_jsonl, "w", encoding="utf-8") as f:
