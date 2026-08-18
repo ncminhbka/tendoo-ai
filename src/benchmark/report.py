@@ -59,7 +59,7 @@ def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v1/repo
     vrams = []
     case_metadata = {}
     for track in ("t2i", "i2i"):
-        case_path = os.path.join("benchmarks", "tendoo_v0", "cases", f"{track}.jsonl")
+        case_path = os.path.join("benchmarks", "tendoo_v1", "cases", f"{track}.jsonl")
         if os.path.exists(case_path):
             with open(case_path, encoding="utf-8") as case_file:
                 for line in case_file:

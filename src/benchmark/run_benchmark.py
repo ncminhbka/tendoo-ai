@@ -135,7 +135,7 @@ def run_benchmark(max_cases: int = None):
             print(f"[{run_count}/{total_runs}] Case: {cid} | Track: {track.upper()} | Seed: {seed} | Status: {status} | CER: {text_res['cer']} | Alignment: {prompt_align} | Score: {composite}")
 
     # 7. Ghi kết quả và xuất báo cáo
-    results_jsonl = "benchmarks/tendoo_v0/outputs/result.jsonl"
+    results_jsonl = "benchmarks/tendoo_v1/outputs/result.jsonl"
     os.makedirs(os.path.dirname(results_jsonl), exist_ok=True)
     with open(results_jsonl, "w", encoding="utf-8") as f:
         for r in results:
