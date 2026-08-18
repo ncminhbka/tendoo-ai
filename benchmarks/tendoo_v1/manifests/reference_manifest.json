@@ -1,8 +1,8 @@
 {
   "version": "v1-5-clean-safe-domains-v2",
-  "total_references": 50,
+  "total_references": 46,
   "status_summary": {
-    "available": 50,
+    "available": 46,
     "pending_reference": 0
   },
   "references": [
@@ -398,111 +398,71 @@
     },
     {
       "ref_id": "prod_040",
-      "title": "Bình Giữ Nhiệt Inox Cao Cấp",
-      "category": "home_electronics",
-      "path": "benchmarks/tendoo_v1/references/home_electronics/prod_040.png",
-      "status": "available",
-      "image_url": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=1024&q=80",
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "ref_id": "prod_041",
       "title": "Túi giấy",
       "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_041.png",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_040.png",
       "status": "available",
       "image_url": "https://images.unsplash.com/photo-1544816155-12df9643f363?w=1024&q=80",
       "width": 1024,
       "height": 1024
     },
     {
-      "ref_id": "prod_042",
+      "ref_id": "prod_041",
       "title": "Bút Ký Tên Metal Executive Pen",
       "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_042.png",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_041.png",
       "status": "available",
       "image_url": "https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=1024&q=80",
       "width": 1024,
       "height": 1024
     },
     {
-      "ref_id": "prod_043",
+      "ref_id": "prod_042",
       "title": "Cuốn Sổ Tay Bìa Da Cổ Điển Journal",
       "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_043.png",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_042.png",
       "status": "available",
       "image_url": "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=1024&q=80",
       "width": 1024,
       "height": 1024
     },
     {
-      "ref_id": "prod_044",
+      "ref_id": "prod_043",
       "title": "Mũi Bút Viết Sổ Tay Nghệ Thuật",
       "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_044.png",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_043.png",
       "status": "available",
       "image_url": "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=1024&q=80",
       "width": 1024,
       "height": 1024
     },
     {
-      "ref_id": "prod_045",
+      "ref_id": "prod_044",
       "title": "Bút chì màu đủ các loại màu",
       "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_045.png",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_044.png",
       "status": "available",
       "image_url": "https://images.unsplash.com/photo-1513542789411-b6a5d4f31634?w=1024&q=80",
       "width": 1024,
       "height": 1024
     },
     {
-      "ref_id": "prod_046",
+      "ref_id": "prod_045",
       "title": "Bút chì gỗ",
+      "category": "stationery_office",
+      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_045.png",
+      "status": "available",
+      "image_url": "https://images.unsplash.com/photo-1516962215378-7fa2e137ae93?w=1024&q=80",
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "ref_id": "prod_046",
+      "title": "Tai Nghe Chụp Tai Làm Việc Văn Phòng",
       "category": "stationery_office",
       "path": "benchmarks/tendoo_v1/references/stationery_office/prod_046.png",
       "status": "available",
-      "image_url": "https://images.unsplash.com/photo-1516962215378-7fa2e137ae93?w=1024&q=80",
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "ref_id": "prod_047",
-      "title": "Tai Nghe Chụp Tai Làm Việc Văn Phòng",
-      "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_047.png",
-      "status": "available",
       "image_url": "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=1024&q=80",
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "ref_id": "prod_048",
-      "title": "Hộp Đựng Bút Bằng Gỗ Để Bàn",
-      "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_048.png",
-      "status": "available",
-      "image_url": "https://images.unsplash.com/photo-1516962215378-7fa2e137ae93?w=1024&q=80",
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "ref_id": "prod_049",
-      "title": "Kéo Cắt Giấy Văn Phòng Cán Vàng",
-      "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_049.png",
-      "status": "available",
-      "image_url": "https://images.unsplash.com/photo-1503792501406-2c40da09e1e2?w=1024&q=80",
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "ref_id": "prod_050",
-      "title": "Kẹp Tài Liệu Bằng Kim Loại Sang Trọng",
-      "category": "stationery_office",
-      "path": "benchmarks/tendoo_v1/references/stationery_office/prod_050.png",
-      "status": "available",
-      "image_url": "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=1024&q=80",
       "width": 1024,
       "height": 1024
     }

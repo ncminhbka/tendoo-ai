@@ -71,7 +71,6 @@ COMMERCIAL_PRODUCTS = [
     ("Máy Pha Cà Phê Espresso Machine", "home_electronics", "https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=1024&q=80"),
     ("Tay cầm chơi game màu đỏ", "home_electronics", "https://images.unsplash.com/photo-1577741314755-048d8525d31e?w=1024&q=80"),
     ("Bộ cốc gốm", "home_electronics", "https://images.unsplash.com/photo-1610701596007-11502861dcfa?w=1024&q=80"),
-    ("Bình Giữ Nhiệt Inox Cao Cấp", "home_electronics", "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=1024&q=80"),
 
     # 5. Stationery & Office (prod_041 - prod_050)
     ("Túi giấy", "stationery_office", "https://images.unsplash.com/photo-1544816155-12df9643f363?w=1024&q=80"),
@@ -80,10 +79,7 @@ COMMERCIAL_PRODUCTS = [
     ("Mũi Bút Viết Sổ Tay Nghệ Thuật", "stationery_office", "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=1024&q=80"),
     ("Bút chì màu đủ các loại màu", "stationery_office", "https://images.unsplash.com/photo-1513542789411-b6a5d4f31634?w=1024&q=80"),
     ("Bút chì gỗ", "stationery_office", "https://images.unsplash.com/photo-1516962215378-7fa2e137ae93?w=1024&q=80"),
-    ("Tai Nghe Chụp Tai Làm Việc Văn Phòng", "stationery_office", "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=1024&q=80"),
-    ("Hộp Đựng Bút Bằng Gỗ Để Bàn", "stationery_office", "https://images.unsplash.com/photo-1516962215378-7fa2e137ae93?w=1024&q=80"),
-    ("Kéo Cắt Giấy Văn Phòng Cán Vàng", "stationery_office", "https://images.unsplash.com/photo-1503792501406-2c40da09e1e2?w=1024&q=80"),
-    ("Kẹp Tài Liệu Bằng Kim Loại Sang Trọng", "stationery_office", "https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=1024&q=80")
+    ("Tai Nghe Chụp Tai Làm Việc Văn Phòng", "stationery_office", "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=1024&q=80")
 ]
 
 def format_lifestyle_studio_image(raw_img: Image.Image) -> Image.Image:
@@ -119,14 +115,12 @@ def organize_domain_references():
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw_img = Image.open(resp)
                 clean_img = format_lifestyle_studio_image(raw_img)
-                folder.mkdir(parents=True, exist_ok=True)
                 clean_img.save(file_path, format="PNG")
                 img_success = True
         except Exception as e:
             print(f"  ❌ Lỗi tải ảnh #{idx} ({title}): {e}")
             
         if not img_success:
-            folder.mkdir(parents=True, exist_ok=True)
             canvas = Image.new("RGB", (1024, 1024), (245, 247, 250))
             canvas.save(file_path, format="PNG")
 
