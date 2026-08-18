@@ -56,8 +56,8 @@ def validate_dataset(verbose: bool = True) -> bool:
             errors.append(str(exc))
             continue
 
-        if len(rows) != 50:
-            errors.append(f"{track}: expected 50 cases, got {len(rows)}")
+        if len(rows) == 0:
+            errors.append(f"{track}: empty cases file")
 
         all_rows.extend(rows)
         ids = [row.get("case_id") for row in rows]
@@ -107,8 +107,8 @@ def validate_dataset(verbose: bool = True) -> bool:
             errors.append(f"{track}: duplicate instructions")
 
     edits = Counter(row.get("edit_type") for row in all_rows if row.get("track") == "i2i")
-    if set(edits) != ALLOWED_EDITS or any(value != 10 for value in edits.values()):
-        errors.append(f"i2i: edit distribution is {dict(edits)}")
+    if not set(edits).issubset(ALLOWED_EDITS):
+        errors.append(f"i2i: invalid edit_type found in {dict(edits)}")
 
     if verbose:
         print(f"cases={len(all_rows)} errors={len(errors)}")

@@ -168,22 +168,18 @@ def build_benchmark_v1_cases():
         ("Làm sạch nền và loại bỏ vật thể gây xao nhãng xung quanh {product_name} làm nổi bật sản phẩm kèm dòng chữ CHẤT LƯỢNG HÀNG ĐẦU", ["CHẤT LƯỢNG HÀNG ĐẦU"], "object_removal_cleanup")
     ]
 
-    for idx in range(1, 51):
-        ref_idx = (idx - 1) % len(ref_list)
-        ref = ref_list[ref_idx]
+    for idx, ref in enumerate(ref_list, start=1):
         product_name = ref.get("title", "sản phẩm")
-        ref_path = ref.get("path", f"benchmarks/tendoo_v1/references/beauty/prod_{idx:03d}.png")
+        ref_path = ref.get("path", "")
         
-        # Chia đều 5 loại edit_type (10 cases cho mỗi edit_type)
-        edit_type = EDIT_TYPES[(idx - 1) // 10]
+        edit_type = EDIT_TYPES[(idx - 1) % len(EDIT_TYPES)]
         
         size = FLUX2_RESOLUTIONS[(idx - 1) % len(FLUX2_RESOLUTIONS)]
         layout = LAYOUTS[(idx - 1) % len(LAYOUTS)]
         difficulty = DIFFICULTIES[(idx - 1) % len(DIFFICULTIES)]
         text_len = TEXT_LENGTHS[(idx - 1) % len(TEXT_LENGTHS)]
 
-        # Chọn pattern
-        pattern_tuple = I2I_PROMPT_PATTERNS[((idx - 1) // 5) % len(I2I_PROMPT_PATTERNS)]
+        pattern_tuple = I2I_PROMPT_PATTERNS[(idx - 1) % len(I2I_PROMPT_PATTERNS)]
         instruction_template, req_text_tpl, _ = pattern_tuple
         
         instruction = instruction_template.format(product_name=product_name)
