@@ -20,8 +20,8 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = ROOT / "benchmarks" / "tendoo_v0" / "manifests" / "reference_manifest.json"
-CASES_DIR = ROOT / "benchmarks" / "tendoo_v0" / "cases"
+MANIFEST_PATH = ROOT / "benchmarks" / "tendoo_v1" / "manifests" / "reference_manifest.json"
+CASES_DIR = ROOT / "benchmarks" / "tendoo_v1" / "cases"
 CASES_V1_DIR = ROOT / "benchmarks" / "tendoo_v1" / "cases"
 
 FLUX2_RESOLUTIONS = [
@@ -172,7 +172,7 @@ def build_benchmark_v1_cases():
         ref_idx = (idx - 1) % len(ref_list)
         ref = ref_list[ref_idx]
         product_name = ref.get("title", "sản phẩm")
-        ref_path = ref.get("path", f"benchmarks/tendoo_v0/references/beauty/prod_{idx:03d}.png")
+        ref_path = ref.get("path", f"benchmarks/tendoo_v1/references/beauty/prod_{idx:03d}.png")
         
         # Chia đều 5 loại edit_type (10 cases cho mỗi edit_type)
         edit_type = EDIT_TYPES[(idx - 1) // 10]

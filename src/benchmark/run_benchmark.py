@@ -1,5 +1,5 @@
 """
-Pipeline chính chạy Benchmark TendooBizEval-Vi v0
+Pipeline chính chạy Benchmark TendooBizEval-Vi v1
 Orchestration: Validate -> Generate (3 Seeds) -> Evaluate OCR, Image Similarity & Visual Quality -> Report
 """
 
@@ -22,16 +22,16 @@ SEEDS = [42, 43, 44]
 
 def run_benchmark(max_cases: int = None):
     print("=" * 65)
-    print("🚀 KHỞI ĐỘNG HỆ THỐNG BENCHMARK TENDOOBIZEVAL-VI (v0)")
+    print("🚀 KHỞI ĐỘNG HỆ THỐNG BENCHMARK TENDOOBIZEVAL-VI (v1)")
     print("=" * 65)
     
     # 1. Validate Dataset
     if not validate_dataset():
         print("⚠️ Cảnh báo dataset có lỗi, tiếp tục với các case hợp lệ...")
 
-    t2i_file = "benchmarks/tendoo_v0/cases/t2i.jsonl"
-    i2i_file = "benchmarks/tendoo_v0/cases/i2i.jsonl"
-    output_base = "benchmarks/tendoo_v0/outputs"
+    t2i_file = "benchmarks/tendoo_v1/cases/t2i.jsonl"
+    i2i_file = "benchmarks/tendoo_v1/cases/i2i.jsonl"
+    output_base = "benchmarks/tendoo_v1/outputs"
     
     results = []
     

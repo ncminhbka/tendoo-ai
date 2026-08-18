@@ -20,8 +20,8 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path(__file__).resolve().parents[2]
-REF_DIR = ROOT / "benchmarks" / "tendoo_v0" / "references"
-MANIFEST_PATH = ROOT / "benchmarks" / "tendoo_v0" / "manifests" / "reference_manifest.json"
+REF_DIR = ROOT / "benchmarks" / "tendoo_v1" / "references"
+MANIFEST_PATH = ROOT / "benchmarks" / "tendoo_v1" / "manifests" / "reference_manifest.json"
 
 # 50 Sản phẩm chuẩn mực, chia đều 5 ngành hàng (10 items / ngành)
 COMMERCIAL_PRODUCTS = [
@@ -107,7 +107,7 @@ def organize_domain_references():
         
         file_name = f"prod_{idx:03d}.png"
         file_path = folder / file_name
-        rel_path = f"benchmarks/tendoo_v0/references/{category}/{file_name}"
+        rel_path = f"benchmarks/tendoo_v1/references/{category}/{file_name}"
         
         img_success = False
         try:

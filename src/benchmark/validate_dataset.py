@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CASE_DIR = ROOT / "benchmarks" / "tendoo_v0" / "cases"
+CASE_DIR = ROOT / "benchmarks" / "tendoo_v1" / "cases"
 
 # FLUX.2 Klein strict multiple of 16 resolutions
 ALLOWED_SIZES = {

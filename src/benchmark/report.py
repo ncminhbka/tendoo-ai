@@ -42,7 +42,7 @@ def calculate_composite_score(track: str, metrics: dict) -> float:
         
     return round(score, 2)
 
-def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v0/reports"):
+def generate_reports(results: list, output_dir: str = "benchmarks/tendoo_v1/reports"):
     os.makedirs(output_dir, exist_ok=True)
     
     csv_path = os.path.join(output_dir, "report.csv")
