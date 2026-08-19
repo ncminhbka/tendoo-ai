@@ -476,12 +476,17 @@ class _GradientCaptureProcessor:
         )
         hidden_states = hidden_states.flatten(2, 3).to(query.dtype)
 
-        if encoder_hidden_states is not None:
-            encoder_hidden_states_out, hidden_states = hidden_states.split_with_sizes(
-                [encoder_hidden_states.shape[1], hidden_states.shape[1] - encoder_hidden_states.shape[1]],
-                dim=1,
-            )
-            encoder_hidden_states_out = attn.to_add_out(encoder_hidden_states_out)
+        if encoder_hidden_states is not None and hasattr(encoder_hidden_states, "shape") and len(encoder_hidden_states.shape) > 1:
+            enc_len = encoder_hidden_states.shape[1]
+            if enc_len < hidden_states.shape[1]:
+                encoder_hidden_states_out, hidden_states = hidden_states.split_with_sizes(
+                    [enc_len, hidden_states.shape[1] - enc_len],
+                    dim=1,
+                )
+                if hasattr(attn, "to_add_out") and attn.to_add_out is not None:
+                    encoder_hidden_states_out = attn.to_add_out(encoder_hidden_states_out)
+            else:
+                encoder_hidden_states_out = None
         else:
             encoder_hidden_states_out = None
 

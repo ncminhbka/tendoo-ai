@@ -269,10 +269,33 @@ class TextGuiderFluxPipeline:
         txt_ids = None
         if hasattr(self.pipe, "encode_prompt"):
             try:
-                res = self.pipe.encode_prompt(prompt=prompt, prompt_2=None)
+                import inspect
+                sig = inspect.signature(self.pipe.encode_prompt)
+                exec_dev = getattr(self.pipe, "_execution_device", transformer.device)
+
+                encode_kwargs = {}
+                if "prompt" in sig.parameters:
+                    encode_kwargs["prompt"] = prompt
+                if "prompt_2" in sig.parameters:
+                    encode_kwargs["prompt_2"] = None
+                if "device" in sig.parameters:
+                    encode_kwargs["device"] = exec_dev
+                if "dtype" in sig.parameters:
+                    encode_kwargs["dtype"] = transformer.dtype
+
+                res = self.pipe.encode_prompt(**encode_kwargs)
                 if isinstance(res, tuple):
                     prompt_embeds = res[0]
                     txt_ids = res[1] if len(res) > 1 else None
+                elif isinstance(res, torch.Tensor):
+                    prompt_embeds = res
+
+                if prompt_embeds is not None:
+                    prompt_embeds = prompt_embeds.to(device=exec_dev, dtype=transformer.dtype)
+                if txt_ids is not None and isinstance(txt_ids, torch.Tensor):
+                    txt_ids = txt_ids.to(device=exec_dev)
+
+                print(f"[TextGuider] Pre-encoded prompt embeds: shape={prompt_embeds.shape}, device={prompt_embeds.device}")
             except Exception as exc:
                 print(f"[TextGuider] Note: encode_prompt pre-encoding: {exc}")
 
@@ -359,6 +382,10 @@ class TextGuiderFluxPipeline:
             enc_states = prompt_embeds if prompt_embeds is not None else getattr(pipe, "_current_encoder_hidden_states", None)
             t_ids = txt_ids if txt_ids is not None else getattr(pipe, "_current_txt_ids", None)
             i_ids = img_ids if img_ids is not None else getattr(pipe, "_current_img_ids", None)
+
+            if enc_states is None:
+                print(f"[TextGuider] Step {step}: encoder_hidden_states is None, skipping guidance.")
+                return original_latents
 
             store.clear()
             attn_quo, attn_texts = wrapper.compute_attention_maps_diffusers(
