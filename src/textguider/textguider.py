@@ -317,11 +317,13 @@ class TextGuiderLoss:
 
     @staticmethod
     def wrap_loss(attn_map_quo: Tensor, attn_maps_text: List[Tensor]) -> Tensor:
-        """Equation 4: Wrap loss ensuring quotation mark covers text regions.
+        """Equation 4: Wrap loss ensuring quotation mark covers all text token regions.
+
+        L_wrap = D_SKL( norm(sum_{i=1}^n A_{tau_i}), norm(A_{tau_quo}) )
 
         Minimizes the symmetric KL divergence between the quotation mark
-        attention and the union of all textual content token attentions,
-        encouraging τ_quo to attend broadly over the entire text region.
+        attention and the sum of all textual content token attentions,
+        encouraging tau_quo to attend broadly over the entire text region.
 
         Args:
             attn_map_quo: Attention map for the opening quotation mark token,
@@ -334,15 +336,11 @@ class TextGuiderLoss:
         if not attn_maps_text:
             return torch.tensor(0.0, device=attn_map_quo.device)
 
-        # Union of textual content attentions: element-wise max
-        # This represents the combined activated regions of τ_text
-        text_union = attn_maps_text[0]
-        for am in attn_maps_text[1:]:
-            text_union = torch.max(text_union, am)
+        # Sum of textual content attentions (Eq. 4: sum_{i=1}^n A_{tau_i})
+        text_sum = torch.stack(attn_maps_text, dim=0).sum(dim=0)
 
-        # Minimize symmetric KL between quotation mark attention and text union
-        # This encourages τ_quo to cover where text tokens activate
-        return symmetric_kl_divergence(attn_map_quo, text_union)
+        # Minimize symmetric KL between sum of text token attentions and quotation mark attention
+        return symmetric_kl_divergence(text_sum, attn_map_quo)
 
     @staticmethod
     def total_loss(

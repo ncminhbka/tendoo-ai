@@ -88,14 +88,19 @@ class TextGuiderAttentionStore:
         else:
             attn_quo = torch.zeros(B, N_img, device=q_img.device, dtype=q_img.dtype)
 
-        # Extract attention maps for each textual content token group
+        # Extract attention maps for each textual content token tau_i
         attn_texts = []
+        # Flatten token groups to individual token indices
+        flat_indices = []
         for group in self.text_token_indices:
-            valid_indices = [idx for idx in group if idx < text_len]
-            if valid_indices:
-                text_cols = attn_mean[:, :, valid_indices]  # [B, N_img, num_tokens]
-                # Average across tokens in this group
-                attn_text = text_cols.mean(dim=-1)  # [B, N_img]
+            if isinstance(group, list):
+                flat_indices.extend(group)
+            else:
+                flat_indices.append(group)
+
+        for idx in flat_indices:
+            if idx < text_len:
+                attn_text = attn_mean[:, :, idx]  # [B, N_img]
             else:
                 attn_text = torch.zeros(B, N_img, device=q_img.device, dtype=q_img.dtype)
             attn_texts.append(attn_text)
@@ -111,7 +116,7 @@ class TextGuiderAttentionStore:
         Returns:
             (attn_quo, attn_texts) where:
               attn_quo: [B, N_img] — quotation mark attention
-              attn_texts: List[[B, N_img]] — per-group text attention
+              attn_texts: List[[B, N_img]] — per-token text attention
         """
         if not self.layer_attentions:
             raise RuntimeError("No attention maps captured. Run model forward first.")
@@ -120,12 +125,12 @@ class TextGuiderAttentionStore:
         quo_maps = [la[0] for la in self.layer_attentions]
         avg_quo = torch.stack(quo_maps, dim=0).mean(dim=0)  # [B, N_img]
 
-        # Average each text token group across layers
-        num_groups = len(self.layer_attentions[0][1])
+        # Average each text token attention across layers
+        num_tokens = len(self.layer_attentions[0][1])
         avg_texts = []
-        for g in range(num_groups):
-            group_maps = [la[1][g] for la in self.layer_attentions]
-            avg_text = torch.stack(group_maps, dim=0).mean(dim=0)  # [B, N_img]
+        for t in range(num_tokens):
+            token_maps = [la[1][t] for la in self.layer_attentions]
+            avg_text = torch.stack(token_maps, dim=0).mean(dim=0)  # [B, N_img]
             avg_texts.append(avg_text)
 
         return avg_quo, avg_texts

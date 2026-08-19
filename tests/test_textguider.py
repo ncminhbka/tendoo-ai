@@ -251,6 +251,43 @@ class TestTotalLoss:
         total = TextGuiderLoss.total_loss(a_quo, tokens)
         assert total.requires_grad
 
+    def test_exact_equation_formula_match(self):
+        """Verify Eq. 3, Eq. 4, Eq. 5, Eq. 6 against independent manual math computation."""
+        # 3 text tokens, 1 quote token over 16 image positions
+        torch.manual_seed(123)
+        a_quo = torch.softmax(torch.randn(16), dim=0)
+        a_t1 = torch.softmax(torch.randn(16), dim=0)
+        a_t2 = torch.softmax(torch.randn(16), dim=0)
+        a_t3 = torch.softmax(torch.randn(16), dim=0)
+
+        # 1. Manual symmetric KL (Eq. 5)
+        def manual_skl(p, q):
+            p_n = p / p.sum()
+            q_n = q / q.sum()
+            kl_pq = (p_n * (p_n.log() - q_n.log())).sum()
+            kl_qp = (q_n * (q_n.log() - p_n.log())).sum()
+            return 0.5 * (kl_pq + kl_qp)
+
+        skl_12 = manual_skl(a_t1, a_t2)
+        skl_13 = manual_skl(a_t1, a_t3)
+        skl_23 = manual_skl(a_t2, a_t3)
+
+        # Manual split loss (Eq. 3): - sum_{i < j} D_SKL(A_i, A_j)
+        manual_split = -(skl_12 + skl_13 + skl_23)
+        computed_split = TextGuiderLoss.split_loss([a_t1, a_t2, a_t3])
+        assert torch.allclose(manual_split, computed_split, atol=1e-5)
+
+        # Manual wrap loss (Eq. 4): D_SKL( norm(sum A_ti), norm(A_quo) )
+        text_sum = a_t1 + a_t2 + a_t3
+        manual_wrap = manual_skl(text_sum, a_quo)
+        computed_wrap = TextGuiderLoss.wrap_loss(a_quo, [a_t1, a_t2, a_t3])
+        assert torch.allclose(manual_wrap, computed_wrap, atol=1e-5)
+
+        # Manual total loss (Eq. 6): (L_split + L_wrap) / (C(3,2) + 1) = (L_split + L_wrap) / 4
+        manual_total = (manual_split + manual_wrap) / 4.0
+        computed_total = TextGuiderLoss.total_loss(a_quo, [a_t1, a_t2, a_t3])
+        assert torch.allclose(manual_total, computed_total, atol=1e-5)
+
 
 # ============================================================================
 # AMO Sampler Tests
@@ -324,9 +361,10 @@ class TestAttentionStore:
         attn_quo, attn_texts = store.get_aggregated_maps()
 
         assert attn_quo.shape == (B, N_img)
-        assert len(attn_texts) == 2
-        assert attn_texts[0].shape == (B, N_img)
-        assert attn_texts[1].shape == (B, N_img)
+        # 3 individual text tokens (6, 7, 8)
+        assert len(attn_texts) == 3
+        for at in attn_texts:
+            assert at.shape == (B, N_img)
 
     def test_clear(self):
         """Clear should reset stored attention."""
