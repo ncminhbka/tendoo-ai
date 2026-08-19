@@ -194,6 +194,8 @@ class FreeTextFluxPipeline:
                                     tokenizer,
                                     prompt,
                                     self.config.override_texts or extract_text_spans(prompt),
+                                    image_height=height,
+                                    image_width=width,
                                 )
                                 attention_state = {
                                     "recorder": recorder,

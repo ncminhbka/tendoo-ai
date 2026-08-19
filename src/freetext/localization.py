@@ -113,7 +113,15 @@ class AttentionLocalization:
         self.target_token_groups, self.sink_token_indices = self._token_groups(tokenizer, prompt, texts)
         return self.target_token_groups, self.sink_token_indices
 
-    def install_flux2_capture(self, transformer, tokenizer, prompt: str, texts: List[str]):
+    def install_flux2_capture(
+        self,
+        transformer,
+        tokenizer,
+        prompt: str,
+        texts: List[str],
+        image_height: int = 1024,
+        image_width: int = 1024,
+    ):
         from .attention_capture import Flux2AttentionRecorder, install_flux2_capture
 
         groups, sinks = self.configure_attention(tokenizer, prompt, texts)
@@ -122,7 +130,8 @@ class AttentionLocalization:
             encoded = encoded.tolist()
         if encoded and isinstance(encoded[0], list):
             encoded = encoded[0]
-        recorder = Flux2AttentionRecorder(groups, sinks, text_len=len(encoded))
+        image_tokens = (int(image_height) // 16) * (int(image_width) // 16)
+        recorder = Flux2AttentionRecorder(groups, sinks, text_len=len(encoded), image_tokens=image_tokens)
         handle = install_flux2_capture(transformer, recorder)
         return handle, recorder
 

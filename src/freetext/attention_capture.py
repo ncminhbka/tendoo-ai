@@ -22,11 +22,13 @@ class Flux2AttentionRecorder:
         target_groups: list[list[int]],
         sink_indices: list[int],
         text_len: int = 0,
+        image_tokens: int = 0,
         max_query_chunk: int = 256,
     ):
         self.target_groups = [list(dict.fromkeys(g)) for g in target_groups]
         self.sink_indices = list(dict.fromkeys(sink_indices))
         self.text_len = int(text_len)
+        self.image_tokens = int(image_tokens)
         self.max_query_chunk = max_query_chunk
         self.pending: Dict[str, Dict[int, torch.Tensor]] = {}
         self.records: list[dict[str, Any]] = []
@@ -50,6 +52,9 @@ class Flux2AttentionRecorder:
         if not self.target_groups or query_img.ndim != 4 or key_all.ndim != 4:
             return
         batch, query_len, heads, head_dim = query_img.shape
+        if self.image_tokens > 0:
+            query_img = query_img[:, : self.image_tokens]
+            query_len = query_img.shape[1]
         key_len = min(int(text_len), key_all.shape[1])
         all_selected = set(self.sink_indices)
         for group in self.target_groups:
