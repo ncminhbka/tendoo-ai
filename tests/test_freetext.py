@@ -18,7 +18,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from freetext.glyph_renderer import GlyphRenderer, extract_text_spans
 from freetext.log_gabor import LogGaborFilter
 from freetext.localization import AttentionLocalization, otsu_threshold
-from freetext.sgmi import FreeTextConfig, SpectralGlyphInjector
+from freetext.sgmi import (
+    FreeTextConfig,
+    SpectralGlyphInjector,
+    patchify_vae_latents,
+    unpatchify_vae_latents,
+)
 from freetext.pipeline_flux_freetext import FreeTextFluxPipeline
 
 
@@ -59,6 +64,13 @@ class TestFreeText(unittest.TestCase):
         modulated = filter_2d.apply_spectral_modulation(latents)
         self.assertEqual(modulated.shape, latents.shape)
         self.assertFalse(torch.isnan(modulated).any())
+
+    def test_flux2_vae_patch_roundtrip(self):
+        latents = torch.randn((1, 32, 16, 16), dtype=torch.float32)
+        patched = patchify_vae_latents(latents)
+        self.assertEqual(patched.shape, (1, 128, 8, 8))
+        restored = unpatchify_vae_latents(patched)
+        self.assertTrue(torch.equal(latents, restored))
 
     def test_otsu_threshold(self):
         # Array with two clear distinct clusters

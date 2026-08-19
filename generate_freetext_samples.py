@@ -129,18 +129,18 @@ def main():
         print("[Mode] Running in CPU Dry-Run mode...")
         pipe = FreeTextFluxPipeline(pipe=None)
     else:
-        try:
-            pipe = FreeTextFluxPipeline.from_pretrained(
-                model_id=args.model_id,
-                torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                enable_cpu_offload=True,
+        # Never silently turn a failed GPU run into synthetic dry-run images:
+        # that would invalidate a visual comparison. Use --dry-run explicitly.
+        pipe = FreeTextFluxPipeline.from_pretrained(
+            model_id=args.model_id,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            enable_cpu_offload=True,
+        )
+        if not pipe.is_live:
+            raise RuntimeError(
+                "FLUX.2 Klein pipeline is unavailable. Install a compatible "
+                "Diffusers version or pass --dry-run explicitly."
             )
-        except Exception as e:
-            print(f"[Warning] Could not load model ({e}). Full details:")
-            import traceback
-            traceback.print_exc()
-            print("Falling back to Dry-Run mode.")
-            pipe = FreeTextFluxPipeline(pipe=None)
 
     prompts_to_run = SAMPLE_PROMPTS[:args.num_samples] if args.num_samples else SAMPLE_PROMPTS
 

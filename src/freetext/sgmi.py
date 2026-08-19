@@ -67,6 +67,26 @@ def unpack_latents(latents: torch.Tensor, height: int, width: int) -> torch.Tens
     return latents
 
 
+def patchify_vae_latents(latents: torch.Tensor) -> torch.Tensor:
+    """Match Flux2's VAE patchification before BatchNorm normalization."""
+    B, C, H, W = latents.shape
+    if H % 2 or W % 2:
+        raise ValueError(f"VAE latent spatial size must be even, got {H}x{W}")
+    latents = latents.view(B, C, H // 2, 2, W // 2, 2)
+    latents = latents.permute(0, 1, 3, 5, 2, 4)
+    return latents.reshape(B, C * 4, H // 2, W // 2)
+
+
+def unpatchify_vae_latents(latents: torch.Tensor) -> torch.Tensor:
+    """Convert normalized Flux2 VAE patches back to the denoiser layout."""
+    B, C, H, W = latents.shape
+    if C % 4:
+        raise ValueError(f"Patchified VAE channels must be divisible by 4, got {C}")
+    latents = latents.reshape(B, C // 4, 2, 2, H, W)
+    latents = latents.permute(0, 1, 4, 2, 5, 3)
+    return latents.reshape(B, C // 4, H * 2, W * 2)
+
+
 class SpectralGlyphInjector:
     """
     Orchestrates the FreeText injection process for FLUX.2 and other DiT models.
@@ -164,7 +184,14 @@ class SpectralGlyphInjector:
                     glyph_img_tensor = glyph_img_tensor.to(device=retry_device)
                     encoded = vae.encode(glyph_img_tensor)
                 if hasattr(encoded, "latent_dist"):
-                    self.z0_glyph = encoded.latent_dist.sample()
+                    # Flux2's Klein pipeline uses the deterministic mode,
+                    # patchifies it, applies VAE BatchNorm statistics, and
+                    # then feeds the normalized patches to the transformer.
+                    self.z0_glyph = (
+                        encoded.latent_dist.mode()
+                        if hasattr(encoded.latent_dist, "mode")
+                        else encoded.latent_dist.sample()
+                    )
                 elif hasattr(encoded, "latents"):
                     self.z0_glyph = encoded.latents
                 elif isinstance(encoded, tuple):
@@ -172,10 +199,23 @@ class SpectralGlyphInjector:
                 else:
                     self.z0_glyph = encoded
 
-                # Scale latent if scaling_factor is present
-                scaling_factor = getattr(getattr(vae, "config", None), "scaling_factor", 0.3611)
-                shift_factor = getattr(getattr(vae, "config", None), "shift_factor", 0.1159)
-                self.z0_glyph = (self.z0_glyph - shift_factor) * scaling_factor
+                if hasattr(vae, "bn") and self.z0_glyph.ndim == 4:
+                    patchified = patchify_vae_latents(self.z0_glyph)
+                    bn_mean = vae.bn.running_mean.view(1, -1, 1, 1).to(
+                        patchified.device, patchified.dtype
+                    )
+                    bn_std = torch.sqrt(
+                        vae.bn.running_var.view(1, -1, 1, 1).to(
+                            patchified.device, patchified.dtype
+                        )
+                        + getattr(getattr(vae, "config", None), "batch_norm_eps", 1e-5)
+                    )
+                    self.z0_glyph = unpatchify_vae_latents((patchified - bn_mean) / bn_std)
+                else:
+                    # Compatibility path for non-Flux2 VAEs.
+                    scaling_factor = getattr(getattr(vae, "config", None), "scaling_factor", 0.3611)
+                    shift_factor = getattr(getattr(vae, "config", None), "shift_factor", 0.1159)
+                    self.z0_glyph = (self.z0_glyph - shift_factor) * scaling_factor
             else:
                 # Mock / Dry-run mode: construct latent tensor directly
                 latent_h = height // 8
