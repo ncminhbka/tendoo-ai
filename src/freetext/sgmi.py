@@ -24,7 +24,9 @@ class FreeTextConfig:
     # approximately the [0.20, 0.40] window.
     t_start: float = 0.20
     t_end: float = 0.40
-    injection_strength: float = 0.85  # Peak injection weight lambda
+    # Eq. (13) defines lambda's peak as 1.0; callers may lower this for an
+    # application-specific strength ablation.
+    injection_strength: float = 1.0
     center_freq: float = 0.22    # Log-Gabor center frequency rho_0
     bandwidth_ratio: float = 0.55 # Log-Gabor bandwidth ratio
     font_path: Optional[str] = None

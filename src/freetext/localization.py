@@ -72,27 +72,70 @@ class AttentionLocalization:
 
     @staticmethod
     def _token_groups(tokenizer, prompt: str, texts: List[str]) -> Tuple[List[List[int]], List[int]]:
-        """Map target spans to tokenizer positions, with an ID fallback."""
+        """Map target spans to the token sequence actually consumed by Qwen3.
+
+        Flux2Klein does not encode ``prompt`` as a raw tokenizer sequence. Its
+        pipeline first applies the Qwen3 chat template and then pads/truncates
+        to 512 positions. Attention columns therefore have to be indexed in
+        that same formatted sequence; using ``tokenizer(prompt)`` silently
+        shifts every target token when chat-template markers are present.
+        """
         groups: List[List[int]] = []
         try:
-            encoded = tokenizer(prompt, return_offsets_mapping=True, add_special_tokens=True)
+            formatted = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+            prompt_start = formatted.find(prompt)
+            if prompt_start < 0:
+                prompt_start = 0
+            encoded = tokenizer(
+                formatted,
+                return_offsets_mapping=True,
+                return_attention_mask=True,
+                padding="max_length",
+                truncation=True,
+                max_length=512,
+            )
             offsets = encoded["offset_mapping"]
             input_ids = encoded["input_ids"]
+            attention_mask = encoded.get("attention_mask")
             if hasattr(input_ids, "tolist"):
                 input_ids = input_ids.tolist()
             if input_ids and isinstance(input_ids[0], list):
                 input_ids = input_ids[0]
+            if hasattr(offsets, "tolist"):
+                offsets = offsets.tolist()
+            if offsets and isinstance(offsets[0], list) and offsets[0] and isinstance(offsets[0][0], list):
+                offsets = offsets[0]
+            if hasattr(attention_mask, "tolist"):
+                attention_mask = attention_mask.tolist()
+            if attention_mask and isinstance(attention_mask[0], list):
+                attention_mask = attention_mask[0]
             for text in texts:
-                start = prompt.find(text)
+                relative_start = prompt.find(text)
+                start = prompt_start + relative_start if relative_start >= 0 else -1
                 end = start + len(text) if start >= 0 else -1
                 groups.append([
                     i for i, (left, right) in enumerate(offsets)
-                    if end > left and start < right and right > left
+                    if (not attention_mask or attention_mask[i])
+                    and end > left and start < right and right > left
                 ])
             special_ids = set(getattr(tokenizer, "all_special_ids", []))
-            sinks = [i for i, token_id in enumerate(input_ids) if token_id in special_ids]
+            # Do not treat padded positions as sink tokens: they are present
+            # in the fixed 512-length sequence but are masked by Qwen3.
+            sinks = [
+                i for i, token_id in enumerate(input_ids)
+                if (not attention_mask or attention_mask[i]) and token_id in special_ids
+            ]
         except Exception:
             full = tokenizer(prompt, add_special_tokens=True)["input_ids"]
+            if hasattr(full, "tolist"):
+                full = full.tolist()
+            if full and isinstance(full[0], list):
+                full = full[0]
             target_ids = [tokenizer(text, add_special_tokens=False)["input_ids"] for text in texts]
             groups = []
             for ids in target_ids:
@@ -125,7 +168,18 @@ class AttentionLocalization:
         from .attention_capture import Flux2AttentionRecorder, install_flux2_capture
 
         groups, sinks = self.configure_attention(tokenizer, prompt, texts)
-        encoded = tokenizer(prompt, add_special_tokens=True)["input_ids"]
+        formatted = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        encoded = tokenizer(
+            formatted,
+            padding="max_length",
+            truncation=True,
+            max_length=512,
+        )["input_ids"]
         if hasattr(encoded, "tolist"):
             encoded = encoded.tolist()
         if encoded and isinstance(encoded[0], list):
@@ -158,10 +212,22 @@ class AttentionLocalization:
 
     def _topology_mask(self, attn_map: torch.Tensor) -> torch.Tensor:
         """Otsu + DBSCAN/connected-component refinement from paper Sec. 3.1.3."""
-        normalized = attn_map - attn_map.min()
+        # Local-neighborhood aggregation is applied before thresholding. Keep
+        # the unsmoothed normalized map as the score map for Eq. (5).
+        score_map = attn_map.float()
+        kernel = max(1, int(self.smoothing_kernel_size))
+        if kernel % 2 == 0:
+            kernel += 1
+        smoothed = F.avg_pool2d(
+            score_map[None, None], kernel_size=kernel, stride=1, padding=kernel // 2
+        )[0, 0]
+        normalized = score_map - score_map.min()
         normalized = normalized / (normalized.max() + 1e-8)
-        threshold = otsu_threshold(normalized.numpy())
-        foreground = normalized.numpy() >= threshold
+        smoothed = smoothed - smoothed.min()
+        smoothed = smoothed / (smoothed.max() + 1e-8)
+        normalized_np = normalized.cpu().numpy()
+        threshold = otsu_threshold(smoothed.cpu().numpy())
+        foreground = smoothed.cpu().numpy() >= threshold
         coords = np.argwhere(foreground)
         if len(coords) == 0:
             return (normalized > 0).float()
@@ -176,10 +242,21 @@ class AttentionLocalization:
                 labels = labels[tuple(coords.T)] - 1
             except Exception:
                 return torch.from_numpy(foreground.astype(np.float32))
+        valid_labels = sorted(set(int(x) for x in labels if x >= 0))
+        if not valid_labels:
+            return torch.from_numpy(foreground.astype(np.float32))
+
+        # Eq. (5): tau is a high quantile over the union of candidate
+        # regions, and each cluster is scored by the fraction of its points
+        # above tau in the original (pre-smoothing) attention map.
+        candidate_values = normalized_np[coords[:, 0], coords[:, 1]]
+        tau = float(np.quantile(candidate_values, 0.90))
         best_label, best_score = None, -1.0
-        for label in set(int(x) for x in labels if x >= 0):
+        for label in valid_labels:
             points = coords[labels == label]
-            score = float(normalized.numpy()[points[:, 0], points[:, 1]].mean())
+            score = float(
+                np.mean(normalized_np[points[:, 0], points[:, 1]] > tau)
+            )
             if score > best_score:
                 best_label, best_score = label, score
         if best_label is None:

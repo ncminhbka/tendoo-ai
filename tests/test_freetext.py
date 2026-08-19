@@ -37,6 +37,48 @@ class TestFreeText(unittest.TestCase):
         self.assertIn("ƯU ĐÃI 50%", spans)
         self.assertIn("KHAI TRƯƠNG", spans)
 
+    def test_flux2_token_mapping_matches_chat_template_sequence(self):
+        class FakeTokenizer:
+            all_special_ids = [99]
+
+            def apply_chat_template(self, messages, **kwargs):
+                return "<chat>" + messages[0]["content"] + "</chat>"
+
+            def __call__(self, text, **kwargs):
+                max_length = kwargs.get("max_length", len(text))
+                ids = list(range(len(text))) + [99] * max(0, max_length - len(text))
+                offsets = [(i, i + 1) for i in range(len(text))] + [(0, 0)] * max(0, max_length - len(text))
+                mask = [1] * len(text) + [0] * max(0, max_length - len(text))
+                return {"input_ids": ids[:max_length], "offset_mapping": offsets[:max_length], "attention_mask": mask[:max_length]}
+
+        groups, sinks = AttentionLocalization._token_groups(
+            FakeTokenizer(), "PHỞ BÒ", ["BÒ"]
+        )
+        self.assertEqual(groups, [[10, 11]])
+        self.assertEqual(sinks, [0, 11])
+
+    def test_callback_uses_post_scheduler_sigma(self):
+        wrapper = FreeTextFluxPipeline(pipe=None, device="cpu", dtype=torch.float32)
+        seen = {}
+
+        def record(latents, progress, timestep_sigma=None):
+            seen["progress"] = progress
+            seen["sigma"] = timestep_sigma
+            return latents
+
+        wrapper.injector.inject_step = record
+
+        class FakeScheduler:
+            sigmas = torch.tensor([1.0, 0.75, 0.5, 0.0])
+
+        class FakePipe:
+            scheduler = FakeScheduler()
+
+        callback = wrapper.create_step_callback(num_inference_steps=3)
+        callback(FakePipe(), 0, torch.tensor(1.0), {"latents": torch.zeros(1)})
+        self.assertAlmostEqual(seen["sigma"], 0.75)
+        self.assertAlmostEqual(seen["progress"], 0.25)
+
     def test_glyph_renderer(self):
         renderer = GlyphRenderer()
         texts = ["PHỞ BÒ", "GIẢM GIÁ 50%"]
@@ -122,14 +164,14 @@ class TestFreeText(unittest.TestCase):
         self.assertGreater(float(mask.sum()), 0.0)
 
     def test_sgmi_injector_lifecycle(self):
-        config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.4, injection_strength=0.85)
+        config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.4, injection_strength=1.0)
         injector = SpectralGlyphInjector(config=config)
 
         # Weight annealing curve
         self.assertEqual(injector.compute_annealed_weight(0.1), 0.0)
         self.assertEqual(injector.compute_annealed_weight(0.5), 0.0)
         start_weight = injector.compute_annealed_weight(0.2)
-        self.assertAlmostEqual(start_weight, 0.85, places=5)
+        self.assertAlmostEqual(start_weight, 1.0, places=5)
 
         # Mock prepare with prompt
         prompt = 'Banner "QUÁN ĂN NGON"'

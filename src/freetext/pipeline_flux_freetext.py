@@ -98,9 +98,11 @@ class FreeTextFluxPipeline:
             sigmas = getattr(scheduler, "sigmas", None)
             if sigmas is not None and len(sigmas) > 0:
                 # FlowMatchEulerDiscreteScheduler exposes the actual sigma
-                # trajectory; use it instead of assuming uniformly spaced
-                # denoising steps.
-                sigma_index = min(int(step), len(sigmas) - 1)
+                # trajectory; use the sigma of the latent *after* the
+                # scheduler step because Diffusers invokes this callback
+                # after scheduler.step(). The schedule normally has N+1
+                # entries, so callback step i owns sigma[i+1].
+                sigma_index = min(int(step) + 1, len(sigmas) - 1)
                 timestep_sigma = float(sigmas[sigma_index].detach().cpu().item())
                 progress = max(0.0, min(1.0, 1.0 - timestep_sigma))
             else:
