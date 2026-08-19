@@ -41,16 +41,29 @@ def pack_latents(latents: torch.Tensor) -> torch.Tensor:
 
 def unpack_latents(latents: torch.Tensor, height: int, width: int) -> torch.Tensor:
     """
-    Unpacks FLUX 3D packed tokens [B, N, 64] into 4D spatial latents [B, 16, H_lat, W_lat].
+    Unpacks 2x2 packed tokens into 4D spatial latents.
+
+    FLUX.1 commonly uses [B, N, 64] / 16 channels, while FLUX.2 Klein 4B
+    uses [B, N, 128] / 32 channels. Infer the channel count from the token
+    width instead of assuming the FLUX.1 layout.
     """
     B, N, D = latents.shape
+    if D % 4 != 0:
+        raise ValueError(f"Packed latent width must be divisible by 4, got {D}")
+    channels = D // 4
     H_lat = height // 8
     W_lat = width // 8
     H_p = H_lat // 2
     W_p = W_lat // 2
-    latents = latents.view(B, H_p, W_p, 16, 2, 2)
+    expected_tokens = H_p * W_p
+    if N != expected_tokens:
+        raise ValueError(
+            f"Packed latent token count {N} does not match resolution "
+            f"{height}x{width} (expected {expected_tokens})"
+        )
+    latents = latents.view(B, H_p, W_p, channels, 2, 2)
     latents = latents.permute(0, 3, 1, 4, 2, 5)
-    latents = latents.reshape(B, 16, H_lat, W_lat)
+    latents = latents.reshape(B, channels, H_lat, W_lat)
     return latents
 
 

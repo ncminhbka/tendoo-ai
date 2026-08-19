@@ -96,6 +96,14 @@ class TestFreeText(unittest.TestCase):
         self.assertEqual(updated_3d.shape, (1, num_patches, 64))
         self.assertFalse(torch.isnan(updated_3d).any())
 
+        # FLUX.2 Klein uses 32 spatial channels packed into width 128 tokens.
+        injector.z0_glyph = torch.randn((1, 32, H_lat, W_lat), dtype=torch.float32)
+        injector.noise_ref = torch.randn_like(injector.z0_glyph)
+        latents_klein = torch.randn((1, num_patches, 128), dtype=torch.float32)
+        updated_klein = injector.inject_step(latents_klein, progress=0.5)
+        self.assertEqual(updated_klein.shape, (1, num_patches, 128))
+        self.assertFalse(torch.isnan(updated_klein).any())
+
     def test_pipeline_dry_run(self):
         pipe = FreeTextFluxPipeline(pipe=None)
         img = pipe.generate(
