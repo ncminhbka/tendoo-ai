@@ -108,14 +108,14 @@ class TestFreeText(unittest.TestCase):
         self.assertGreater(float(mask.sum()), 0.0)
 
     def test_sgmi_injector_lifecycle(self):
-        config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.8, injection_strength=0.85)
+        config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.4, injection_strength=0.85)
         injector = SpectralGlyphInjector(config=config)
 
         # Weight annealing curve
         self.assertEqual(injector.compute_annealed_weight(0.1), 0.0)
-        self.assertEqual(injector.compute_annealed_weight(0.9), 0.0)
-        mid_weight = injector.compute_annealed_weight(0.5)
-        self.assertTrue(mid_weight > 0.5)
+        self.assertEqual(injector.compute_annealed_weight(0.5), 0.0)
+        start_weight = injector.compute_annealed_weight(0.2)
+        self.assertAlmostEqual(start_weight, 0.85, places=5)
 
         # Mock prepare with prompt
         prompt = 'Banner "QUÁN ĂN NGON"'

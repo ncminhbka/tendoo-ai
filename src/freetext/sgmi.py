@@ -19,8 +19,11 @@ from .localization import AttentionLocalization
 class FreeTextConfig:
     """Configuration hyper-parameters for FreeText."""
     enabled: bool = True
-    t_start: float = 0.20        # Start of injection window (normalized time [0, 1])
-    t_end: float = 0.75          # End of injection window
+    # FreeText uses t_start=0.8T -> t_end=0.6T in descending diffusion time.
+    # With progress increasing from pure noise to the clean image, this is
+    # approximately the [0.20, 0.40] window.
+    t_start: float = 0.20
+    t_end: float = 0.40
     injection_strength: float = 0.85  # Peak injection weight lambda
     center_freq: float = 0.22    # Log-Gabor center frequency rho_0
     bandwidth_ratio: float = 0.55 # Log-Gabor bandwidth ratio
@@ -256,9 +259,10 @@ class SpectralGlyphInjector:
         if progress < t_start or progress > t_end:
             return 0.0
 
-        # Cosine curve peaking in middle of injection window
+        # Paper Eq. (13): decay from full injection at the start of the
+        # mid-early window to zero at its end.
         norm_t = (progress - t_start) / (t_end - t_start)
-        weight = 0.5 * (1.0 + math.cos((norm_t - 0.5) * 2.0 * math.pi)) * self.config.injection_strength
+        weight = 0.5 * (1.0 + math.cos(math.pi * norm_t)) * self.config.injection_strength
         return float(weight)
 
     def inject_step(

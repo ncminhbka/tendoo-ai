@@ -93,7 +93,18 @@ class FreeTextFluxPipeline:
         Creates a Diffusers-compatible `callback_on_step_end` callback for FLUX sampling.
         """
         def callback_on_step_end(pipe, step: int, timestep: torch.Tensor, callback_kwargs: Dict[str, Any]):
-            progress = (step + 1) / max(num_inference_steps, 1)
+            timestep_sigma = None
+            scheduler = getattr(pipe, "scheduler", None)
+            sigmas = getattr(scheduler, "sigmas", None)
+            if sigmas is not None and len(sigmas) > 0:
+                # FlowMatchEulerDiscreteScheduler exposes the actual sigma
+                # trajectory; use it instead of assuming uniformly spaced
+                # denoising steps.
+                sigma_index = min(int(step), len(sigmas) - 1)
+                timestep_sigma = float(sigmas[sigma_index].detach().cpu().item())
+                progress = max(0.0, min(1.0, 1.0 - timestep_sigma))
+            else:
+                progress = (step + 1) / max(num_inference_steps, 1)
             if attention_state is not None:
                 self.injector.localization.finalize_attention_step(attention_state["recorder"], step)
                 if not attention_state["locked"] and progress >= attention_state["lock_progress"]:
@@ -112,7 +123,11 @@ class FreeTextFluxPipeline:
                         print("[FreeText] Attention localization locked; using top-k refined mask.")
             latents = callback_kwargs.get("latents")
             if latents is not None:
-                updated_latents = self.injector.inject_step(latents, progress=progress)
+                updated_latents = self.injector.inject_step(
+                    latents,
+                    progress=progress,
+                    timestep_sigma=timestep_sigma,
+                )
                 callback_kwargs["latents"] = updated_latents
             return callback_kwargs
 
