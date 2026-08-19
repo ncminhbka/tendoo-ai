@@ -42,3 +42,6 @@ scratch/
 *.env
 flux_client.py
 config.secrets.json
+
+# External reference repositories (not part of this project)
+third_party/flux2-official/
