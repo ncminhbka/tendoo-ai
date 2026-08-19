@@ -387,12 +387,27 @@ class TextGuiderFluxPipeline:
                 print(f"[TextGuider] Step {step}: encoder_hidden_states is None, skipping guidance.")
                 return original_latents
 
+            if i_ids is None and hasattr(pipe, "_prepare_latent_image_ids"):
+                try:
+                    i_ids = pipe._prepare_latent_image_ids(
+                        latents.shape[0], lat_h // 2, lat_w // 2, latents.device, latents.dtype
+                    )
+                except Exception:
+                    pass
+
+            # Ensure timestep is 1D tensor
+            if not isinstance(timestep, torch.Tensor):
+                t_step = torch.tensor([float(timestep)], device=latents.device, dtype=latents.dtype)
+            else:
+                t_step = timestep.unsqueeze(0) if timestep.ndim == 0 else timestep.flatten()
+                t_step = t_step.to(device=latents.device, dtype=latents.dtype)
+
             store.clear()
             attn_quo, attn_texts = wrapper.compute_attention_maps_diffusers(
                 transformer=transformer,
                 latents=latents_grad,
                 encoder_hidden_states=enc_states,
-                timestep=timestep,
+                timestep=t_step,
                 img_ids=i_ids,
                 txt_ids=t_ids,
                 guidance=None,

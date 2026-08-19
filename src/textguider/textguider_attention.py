@@ -258,12 +258,34 @@ class TextGuiderForwardWrapper:
                 fwd_kwargs["hidden_states"] = latents
             if "encoder_hidden_states" in params and encoder_hidden_states is not None:
                 fwd_kwargs["encoder_hidden_states"] = encoder_hidden_states
+
             if "timestep" in params and timestep is not None:
-                fwd_kwargs["timestep"] = timestep
-            if "img_ids" in params and img_ids is not None:
-                fwd_kwargs["img_ids"] = img_ids
-            if "txt_ids" in params and txt_ids is not None:
-                fwd_kwargs["txt_ids"] = txt_ids
+                if not isinstance(timestep, torch.Tensor):
+                    t_tensor = torch.tensor([float(timestep)], device=latents.device, dtype=latents.dtype)
+                else:
+                    if timestep.ndim == 0:
+                        t_tensor = timestep.unsqueeze(0)
+                    elif timestep.ndim > 1:
+                        t_tensor = timestep.flatten()
+                    else:
+                        t_tensor = timestep
+                    t_tensor = t_tensor.to(device=latents.device, dtype=latents.dtype)
+                fwd_kwargs["timestep"] = t_tensor
+
+            if "img_ids" in params:
+                if img_ids is not None:
+                    fwd_kwargs["img_ids"] = img_ids.to(device=latents.device)
+                else:
+                    # Provide default img_ids if required
+                    fwd_kwargs["img_ids"] = torch.zeros(latents.shape[1], 3, device=latents.device, dtype=latents.dtype)
+
+            if "txt_ids" in params:
+                if txt_ids is not None:
+                    fwd_kwargs["txt_ids"] = txt_ids.to(device=latents.device)
+                elif encoder_hidden_states is not None:
+                    # Provide default txt_ids
+                    fwd_kwargs["txt_ids"] = torch.zeros(encoder_hidden_states.shape[1], 3, device=latents.device, dtype=latents.dtype)
+
             if "guidance" in params and guidance is not None:
                 fwd_kwargs["guidance"] = guidance
             if "joint_attention_kwargs" in params and joint_attention_kwargs is not None:
@@ -272,7 +294,12 @@ class TextGuiderForwardWrapper:
                 fwd_kwargs["pooled_projections"] = kwargs["pooled_projections"]
 
             # Forward pass through the transformer with gradient tracking
-            transformer_output = transformer(**fwd_kwargs)
+            try:
+                transformer_output = transformer(**fwd_kwargs)
+            except Exception as exc:
+                # If forward pass fails after dual-stream blocks, check if we already captured maps
+                if len(self.store.layer_attentions) == 0:
+                    raise exc
 
         finally:
             # Restore original processors
