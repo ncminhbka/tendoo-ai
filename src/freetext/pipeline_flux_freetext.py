@@ -45,7 +45,7 @@ class FreeTextFluxPipeline:
         cls,
         model_id: str = "black-forest-labs/FLUX.2-klein-base-4B",
         config: Optional[FreeTextConfig] = None,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
         torch_dtype: Optional[torch.dtype] = None,
         enable_cpu_offload: bool = True,
@@ -54,6 +54,10 @@ class FreeTextFluxPipeline:
         """
         Loads pre-trained FLUX.2 pipeline and wraps it with FreeText.
         """
+        # Resolve at call time. Resolving this in the function signature can
+        # capture a stale CUDA availability value in notebook/Accelerate jobs.
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         resolved_dtype = torch_dtype or dtype
         if resolved_dtype is None:
             resolved_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
