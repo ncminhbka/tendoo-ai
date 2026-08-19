@@ -11,19 +11,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "=================================================================="
-echo "🚀 Đang khởi động thử nghiệm FLUX.2 Klein 4B Base + TextGuider..."
+echo "🚀 Đang khởi động TextGuider cho FLUX.2 Klein 4B Base..."
 echo "📂 Thư mục làm việc: $(pwd)"
 echo "=================================================================="
 
-# 1. Kích hoạt môi trường conda 'tendoo_ai' nếu chưa được kích hoạt
-if [ "$CONDA_DEFAULT_ENV" != "tendoo_ai" ]; then
-    echo "🔄 Đang kích hoạt môi trường conda 'tendoo_ai'..."
-    # Thử hook conda cho shell bash
+# 1. Kích hoạt môi trường ảo (.venv / uv hoặc conda)
+if [ -f ".venv/bin/activate" ]; then
+    echo "⚡ Kích hoạt môi trường .venv trong thư mục hiện tại..."
+    source .venv/bin/activate
+elif [ -f "../.venv/bin/activate" ]; then
+    echo "⚡ Kích hoạt môi trường .venv ở thư mục cha..."
+    source ../.venv/bin/activate
+elif [ -f "../../.venv/bin/activate" ]; then
+    echo "⚡ Kích hoạt môi trường .venv ở thư mục gốc..."
+    source ../../.venv/bin/activate
+elif [ "$CONDA_DEFAULT_ENV" != "tendoo_ai" ]; then
+    echo "🔄 Đang tìm môi trường conda 'tendoo_ai'..."
     if command -v conda &> /dev/null; then
         eval "$(conda shell.bash hook 2>/dev/null || true)"
         conda activate tendoo_ai 2>/dev/null || true
     fi
-    # Nếu conda nằm trong các đường dẫn tiêu chuẩn trên server
     if [ "$CONDA_DEFAULT_ENV" != "tendoo_ai" ]; then
         for CONDA_PATH in "/opt/conda/bin/conda" "$HOME/miniconda3/bin/conda" "$HOME/anaconda3/bin/conda"; do
             if [ -f "$CONDA_PATH" ]; then
@@ -35,11 +42,7 @@ if [ "$CONDA_DEFAULT_ENV" != "tendoo_ai" ]; then
     fi
 fi
 
-if [ "$CONDA_DEFAULT_ENV" == "tendoo_ai" ]; then
-    echo "✅ Đang sử dụng môi trường: $CONDA_DEFAULT_ENV (Python: $(python --version 2>&1))"
-else
-    echo "⚠️  Cảnh báo: Chưa thể tự động kích hoạt 'tendoo_ai'. Hãy chắc chắn bạn đã gõ 'conda activate tendoo_ai' trước khi chạy script."
-fi
+echo "✅ Python runtime: $(which python 2>/dev/null || echo 'not found') ($(python --version 2>&1 || true))"
 
 # 2. Kiểm tra GPU
 if command -v nvidia-smi &> /dev/null; then
@@ -49,10 +52,9 @@ else
     echo "⚠️  Không tìm thấy lệnh nvidia-smi."
 fi
 
-# 3. Tự động xác định đường dẫn Model FLUX.2 Klein Base
-# Ưu tiên tham số truyền vào $1 -> đường dẫn cố định trong persistent-data -> HuggingFace ID
+# 3. Tự động xác định đường dẫn Model FLUX.2 Klein Base trong persistent-data
 MODEL_PATH=""
-if [ -n "$1" ]; then
+if [ -n "$1" ] && [ "$1" != "--compare" ]; then
     MODEL_PATH="$1"
 elif [ -d "/persistent-data/FLUX.2-klein-base-4B" ]; then
     MODEL_PATH="/persistent-data/FLUX.2-klein-base-4B"
@@ -68,10 +70,18 @@ else
     MODEL_PATH="black-forest-labs/FLUX.2-klein-base-4B"
 fi
 
-SEED=${2:-42}
-STEPS=${3:-50}
-GUIDANCE=${4:-4.0}
-ALPHA=${5:-60.0}
+SEED=42
+STEPS=50
+GUIDANCE=4.0
+ALPHA=60.0
+COMPARE_FLAG=""
+
+# Kiểm tra nếu người dùng muốn so sánh (--compare)
+for arg in "$@"; do
+    if [ "$arg" == "--compare" ]; then
+        COMPARE_FLAG="--compare"
+    fi
+done
 
 OUTPUT_DIR="outputs/textguider_server_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUTPUT_DIR"
@@ -79,16 +89,17 @@ mkdir -p "$OUTPUT_DIR"
 echo "------------------------------------------------------------------"
 echo "🔹 Model Path / ID:  $MODEL_PATH"
 echo "🔹 Seed:             $SEED"
-echo "🔹 Steps:            $STEPS"
+echo "🔹 Steps:            $STEPS (Guidance steps: 12)"
 echo "🔹 Guidance Scale:   $GUIDANCE"
 echo "🔹 TextGuider α:     $ALPHA"
+echo "🔹 Mode:             Chạy trực tiếp TextGuider ${COMPARE_FLAG:+(kèm so sánh Base)}"
 echo "🔹 Output Dir:       $OUTPUT_DIR"
 echo "------------------------------------------------------------------"
 
 # Thiết lập PYTHONPATH
 export PYTHONPATH=".:$PYTHONPATH"
 
-# Chạy script Python tạo ảnh và so sánh Base vs TextGuider
+# Chạy script Python tạo ảnh
 python generate_textguider_samples.py \
     --model-id "$MODEL_PATH" \
     --seed "$SEED" \
@@ -97,9 +108,9 @@ python generate_textguider_samples.py \
     --alpha "$ALPHA" \
     --t-guide-ratio 0.25 \
     --amo-c 0.5 \
-    --compare \
+    $COMPARE_FLAG \
     --output-dir "$OUTPUT_DIR"
 
 echo "=================================================================="
-echo "🎉 Hoàn tất sinh ảnh! Kết quả được lưu tại: $OUTPUT_DIR"
+echo "🎉 Hoàn tất sinh ảnh TextGuider! Kết quả lưu tại: $OUTPUT_DIR"
 echo "=================================================================="

@@ -202,7 +202,7 @@ class TextGuiderFluxPipeline:
 
         # Create callback for TextGuider guidance
         callback = self._create_textguider_callback(
-            token_info, t_guide_steps, num_inference_steps, height, width
+            token_info, t_guide_steps, num_inference_steps, height, width, prompt
         )
 
         pipe_kwargs = {
@@ -222,7 +222,6 @@ class TextGuiderFluxPipeline:
             pipe_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
         else:
             print("[TextGuider] Warning: pipeline does not expose callback latents; attempting full integration.")
-            # Try to use the full custom denoising loop
             return self._full_textguider_generate(
                 prompt, width, height, num_inference_steps, guidance_scale,
                 generator, token_info, t_guide_steps, **kwargs
@@ -238,6 +237,7 @@ class TextGuiderFluxPipeline:
         total_steps: int,
         height: int,
         width: int,
+        prompt: str,
     ):
         """Create a Diffusers callback_on_step_end for TextGuider guidance.
 
@@ -249,8 +249,7 @@ class TextGuiderFluxPipeline:
         if transformer is None:
             raise RuntimeError("Pipeline has no transformer attribute")
 
-        # Create attention store
-        num_heads = 24  # FLUX.2 Klein 4B
+        num_heads = getattr(transformer.config, "num_attention_heads", 24)
         store = TextGuiderAttentionStore(
             quo_indices=token_info["quo_indices"],
             text_token_indices=token_info["text_token_indices"],
@@ -262,9 +261,30 @@ class TextGuiderFluxPipeline:
             use_gradient_checkpointing=self.config.use_gradient_checkpointing,
         )
 
-        # Latent spatial dimensions
         lat_h = height // 8
         lat_w = width // 8
+
+        # Pre-encode prompt embeddings & IDs so they are directly available for gradient tracking
+        prompt_embeds = None
+        txt_ids = None
+        if hasattr(self.pipe, "encode_prompt"):
+            try:
+                res = self.pipe.encode_prompt(prompt=prompt, prompt_2=None)
+                if isinstance(res, tuple):
+                    prompt_embeds = res[0]
+                    txt_ids = res[1] if len(res) > 1 else None
+            except Exception as exc:
+                print(f"[TextGuider] Note: encode_prompt pre-encoding: {exc}")
+
+        img_ids = None
+        if hasattr(self.pipe, "_prepare_latent_image_ids"):
+            try:
+                exec_dev = getattr(self.pipe, "_execution_device", transformer.device)
+                img_ids = self.pipe._prepare_latent_image_ids(
+                    1, lat_h // 2, lat_w // 2, exec_dev, transformer.dtype
+                )
+            except Exception:
+                pass
 
         def callback_on_step_end(pipe, step: int, timestep: Tensor, callback_kwargs: Dict):
             latents = callback_kwargs.get("latents")
@@ -276,8 +296,19 @@ class TextGuiderFluxPipeline:
             if is_guided_step:
                 # --- TextGuider Latent Guidance ---
                 latents = self._apply_textguider_guidance(
-                    latents, transformer, wrapper, store, pipe, step, timestep,
-                    lat_h, lat_w, token_info,
+                    latents=latents,
+                    transformer=transformer,
+                    wrapper=wrapper,
+                    store=store,
+                    pipe=pipe,
+                    step=step,
+                    timestep=timestep,
+                    lat_h=lat_h,
+                    lat_w=lat_w,
+                    token_info=token_info,
+                    prompt_embeds=prompt_embeds,
+                    txt_ids=txt_ids,
+                    img_ids=img_ids,
                 )
                 callback_kwargs["latents"] = latents
 
@@ -315,72 +346,42 @@ class TextGuiderFluxPipeline:
         lat_h: int,
         lat_w: int,
         token_info: Dict,
+        prompt_embeds: Optional[Tensor] = None,
+        txt_ids: Optional[Tensor] = None,
+        img_ids: Optional[Tensor] = None,
     ) -> Tensor:
-        """Apply TextGuider latent guidance: Z' = Z - α * ∇_Z L.
-
-        This is the core of the TextGuider paper. We:
-        1. Enable gradients on the latent
-        2. Forward pass through dual-stream blocks (attention captured)
-        3. Compute TextGuider loss from attention maps
-        4. Backpropagate to get gradient w.r.t. latent
-        5. Update latent using the gradient
-        """
+        """Apply TextGuider latent guidance: Z' = Z - α * ∇_Z L."""
         original_latents = latents.detach().clone()
-
-        # Enable gradient computation on latent
         latents_grad = latents.detach().clone().requires_grad_(True)
 
         try:
-            # Get pipeline internals for the forward pass
-            encoder_hidden_states = getattr(pipe, "_current_encoder_hidden_states", None)
-            pooled_projections = getattr(pipe, "_current_pooled_projections", None)
-            img_ids = getattr(pipe, "_current_img_ids", None)
-            txt_ids = getattr(pipe, "_current_txt_ids", None)
+            # Fallback to pipeline internals if prompt_embeds was not precomputed
+            enc_states = prompt_embeds if prompt_embeds is not None else getattr(pipe, "_current_encoder_hidden_states", None)
+            t_ids = txt_ids if txt_ids is not None else getattr(pipe, "_current_txt_ids", None)
+            i_ids = img_ids if img_ids is not None else getattr(pipe, "_current_img_ids", None)
 
-            # If pipeline internals aren't accessible, try to compute attention
-            # maps from the model directly
-            if encoder_hidden_states is None:
-                # Fallback: compute attention maps from a separate forward pass
-                # using the attention processor hooks
-                store.clear()
-                attn_quo, attn_texts = wrapper._compute_via_processor_hooks(
-                    transformer,
-                    latents=latents_grad,
-                    encoder_hidden_states=encoder_hidden_states,
-                    pooled_projections=pooled_projections,
-                    timestep=timestep,
-                    img_ids=img_ids,
-                    txt_ids=txt_ids,
-                    guidance=None,
-                    joint_attention_kwargs=None,
-                )
-            else:
-                store.clear()
-                attn_quo, attn_texts = wrapper.compute_attention_maps_diffusers(
-                    transformer,
-                    latents=latents_grad,
-                    encoder_hidden_states=encoder_hidden_states,
-                    pooled_projections=pooled_projections,
-                    timestep=timestep,
-                    img_ids=img_ids,
-                    txt_ids=txt_ids,
-                    guidance=None,
-                    joint_attention_kwargs=None,
-                )
+            store.clear()
+            attn_quo, attn_texts = wrapper.compute_attention_maps_diffusers(
+                transformer=transformer,
+                latents=latents_grad,
+                encoder_hidden_states=enc_states,
+                timestep=timestep,
+                img_ids=i_ids,
+                txt_ids=t_ids,
+                guidance=None,
+                joint_attention_kwargs=None,
+            )
 
             # Compute TextGuider loss
-            # Use batch index 0 (single image generation)
             attn_quo_b0 = attn_quo[0] if attn_quo.ndim > 1 else attn_quo
             attn_texts_b0 = [at[0] if at.ndim > 1 else at for at in attn_texts]
 
             loss = TextGuiderLoss.total_loss(attn_quo_b0, attn_texts_b0)
 
             if loss.requires_grad:
-                # Backpropagate
                 loss.backward()
 
                 if latents_grad.grad is not None:
-                    # Update: Z' = Z - α * ∇_Z L
                     grad = latents_grad.grad.detach()
                     updated_latents = original_latents - self.config.alpha * grad
 
@@ -390,7 +391,7 @@ class TextGuiderFluxPipeline:
                         f"grad_norm={grad.norm().item():.6f}"
                     )
 
-                    # Update AMO mask from the attention maps
+                    # Update AMO mask from attention maps
                     if self.amo_sampler is not None:
                         self._amo_mask = self.amo_sampler.compute_overshooting_mask(
                             [at.detach() for at in attn_texts_b0],

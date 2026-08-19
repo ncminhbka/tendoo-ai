@@ -189,129 +189,48 @@ class TextGuiderForwardWrapper:
         transformer,
         latents: Tensor,
         encoder_hidden_states: Tensor,
-        pooled_projections: Tensor,
         timestep: Tensor,
-        img_ids: Tensor,
-        txt_ids: Tensor,
+        img_ids: Optional[Tensor] = None,
+        txt_ids: Optional[Tensor] = None,
         guidance: Optional[Tensor] = None,
         joint_attention_kwargs: Optional[Dict] = None,
+        **kwargs,
     ) -> Tuple[Tensor, List[Tensor]]:
-        """Compute TextGuider attention maps through a Diffusers Flux2KleinTransformer.
-
-        This method performs a gradient-enabled forward pass through the
-        transformer's dual-stream blocks to capture cross-modal attention.
-
-        For the Diffusers Flux2Klein implementation, the transformer processes
-        text (encoder_hidden_states) and image (hidden_states) through
-        dual-stream blocks where they share attention.
-
-        Args:
-            transformer: Diffusers Flux2KleinTransformer2DModel.
-            latents: Current latent tensor [B, N, D] (packed format).
-            encoder_hidden_states: Text embeddings [B, T, D_text].
-            pooled_projections: Pooled text projections [B, D_pool].
-            timestep: Current timestep [B].
-            img_ids: Image position IDs [B, N, 3].
-            txt_ids: Text position IDs [B, T, 3].
-            guidance: Optional guidance tensor.
-            joint_attention_kwargs: Optional kwargs for joint attention.
-
-        Returns:
-            (attn_quo, attn_texts) — aggregated attention maps with gradients.
-        """
+        """Compute TextGuider attention maps through a Diffusers Flux2Transformer."""
         self.store.clear()
 
-        # We need to hook into the dual-stream blocks' attention computation.
-        # For Diffusers Flux2Klein, the transformer has:
-        #   - transformer_blocks (dual-stream)
-        #   - single_transformer_blocks (single-stream)
-        # We only need attention from transformer_blocks.
-
-        hooks = []
-
-        def make_capture_hook(block_idx):
-            """Create a hook that captures Q_img and K_text from a dual-stream block."""
-            def hook_fn(module, args, kwargs, output):
-                # In Diffusers Flux2, the dual-stream block computes attention
-                # via its attn attribute. The output contains hidden_states and
-                # encoder_hidden_states. We need to intercept Q and K.
-                #
-                # However, hooks run after forward, so we need a different approach.
-                # We'll use pre-forward hooks to capture the inputs and then
-                # compute attention ourselves.
-                pass
-            return hook_fn
-
-        # Alternative approach: manually compute attention from the
-        # block's internal state. This is more reliable across Diffusers versions.
-        # We compute attention maps by running the embedding/projection layers
-        # and computing Q_img @ K_text^T ourselves.
-
-        # For Diffusers' Flux2 implementation, we access attention through
-        # the attention processor. Instead of hooking, we'll extract attention
-        # by inserting capture processors (similar to attention_capture.py but
-        # with gradients retained).
-
-        try:
-            attn_quo, attn_texts = self._compute_via_processor_hooks(
-                transformer, latents, encoder_hidden_states,
-                pooled_projections, timestep, img_ids, txt_ids,
-                guidance, joint_attention_kwargs,
-            )
-        finally:
-            # Remove any hooks
-            for h in hooks:
-                h.remove()
-
-        return attn_quo, attn_texts
+        return self._compute_via_processor_hooks(
+            transformer=transformer,
+            latents=latents,
+            encoder_hidden_states=encoder_hidden_states,
+            timestep=timestep,
+            img_ids=img_ids,
+            txt_ids=txt_ids,
+            guidance=guidance,
+            joint_attention_kwargs=joint_attention_kwargs,
+            **kwargs,
+        )
 
     def _compute_via_processor_hooks(
         self,
         transformer,
         latents: Tensor,
-        encoder_hidden_states: Tensor,
-        pooled_projections: Tensor,
-        timestep: Tensor,
-        img_ids: Tensor,
-        txt_ids: Tensor,
-        guidance: Optional[Tensor],
-        joint_attention_kwargs: Optional[Dict],
+        encoder_hidden_states: Optional[Tensor] = None,
+        timestep: Optional[Tensor] = None,
+        img_ids: Optional[Tensor] = None,
+        txt_ids: Optional[Tensor] = None,
+        guidance: Optional[Tensor] = None,
+        joint_attention_kwargs: Optional[Dict] = None,
+        **kwargs,
     ) -> Tuple[Tensor, List[Tensor]]:
-        """Compute attention maps by hooking into the transformer's attention layers.
-
-        Uses register_forward_hook on the dual-stream blocks' attention modules
-        to capture Q and K tensors with gradients.
-        """
+        """Compute attention maps by hooking into the transformer's attention layers."""
         captured_qk: List[Tuple[Tensor, Tensor, int]] = []
-        hooks = []
-
-        def make_qk_capture_hook():
-            """Hook that captures Q_img and K_text from an attention module."""
-            def hook_fn(module, args, output):
-                # For Flux2Attention modules in Diffusers, the attention module
-                # receives hidden_states and encoder_hidden_states.
-                # We need to access the QKV projections.
-                # The module computes:
-                #   query = attn.to_q(hidden_states)  [img]
-                #   key = attn.to_k(hidden_states)    [img]
-                #   enc_query = attn.to_q(encoder_hidden_states)  [text]
-                #   enc_key = attn.to_k(encoder_hidden_states)    [text]
-                #   q = cat(enc_query, query); k = cat(enc_key, key)
-                #
-                # We capture by hooking the QKV projection sublayers.
-                pass
-            return hook_fn
-
-        # The most reliable approach for Diffusers is to temporarily replace
-        # the attention processor with one that captures QK data with gradients.
         original_processors = {}
 
         try:
             for name, module in transformer.named_modules():
                 class_name = module.__class__.__name__
-                if class_name in {"Flux2Attention", "Flux2ParallelSelfAttention"}:
-                    # Only hook dual-stream attention blocks
-                    # Check if this is a transformer_block (dual) vs single_transformer_block
+                if class_name in {"Flux2Attention", "Flux2ParallelSelfAttention", "FluxAttention"}:
                     if "transformer_blocks." in name and "single_" not in name:
                         if hasattr(module, "get_processor"):
                             original_processors[name] = module.get_processor()
@@ -324,19 +243,31 @@ class TextGuiderForwardWrapper:
                         if hasattr(module, "set_processor"):
                             module.set_processor(processor)
 
-            # Forward pass through the full transformer with gradient tracking
-            # The transformer will use our capture processors for dual-stream blocks
-            transformer_output = transformer(
-                hidden_states=latents,
-                encoder_hidden_states=encoder_hidden_states,
-                pooled_projections=pooled_projections,
-                timestep=timestep,
-                img_ids=img_ids,
-                txt_ids=txt_ids,
-                guidance=guidance,
-                joint_attention_kwargs=joint_attention_kwargs,
-                return_dict=False,
-            )
+            # Build forward arguments dynamically based on signature
+            import inspect
+            sig = inspect.signature(transformer.forward)
+            params = sig.parameters
+
+            fwd_kwargs = {"return_dict": False}
+            if "hidden_states" in params:
+                fwd_kwargs["hidden_states"] = latents
+            if "encoder_hidden_states" in params and encoder_hidden_states is not None:
+                fwd_kwargs["encoder_hidden_states"] = encoder_hidden_states
+            if "timestep" in params and timestep is not None:
+                fwd_kwargs["timestep"] = timestep
+            if "img_ids" in params and img_ids is not None:
+                fwd_kwargs["img_ids"] = img_ids
+            if "txt_ids" in params and txt_ids is not None:
+                fwd_kwargs["txt_ids"] = txt_ids
+            if "guidance" in params and guidance is not None:
+                fwd_kwargs["guidance"] = guidance
+            if "joint_attention_kwargs" in params and joint_attention_kwargs is not None:
+                fwd_kwargs["joint_attention_kwargs"] = joint_attention_kwargs
+            if "pooled_projections" in params and "pooled_projections" in kwargs:
+                fwd_kwargs["pooled_projections"] = kwargs["pooled_projections"]
+
+            # Forward pass through the transformer with gradient tracking
+            transformer_output = transformer(**fwd_kwargs)
 
         finally:
             # Restore original processors
