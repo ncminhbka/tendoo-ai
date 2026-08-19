@@ -122,7 +122,18 @@ class FreeTextFluxPipeline:
                     if attention_mask is not None:
                         self.injector.mask = attention_mask
                         attention_state["locked"] = True
-                        print("[FreeText] Attention localization locked; using top-k refined mask.")
+                        coverage = float(attention_mask.mean().detach().cpu().item())
+                        records = len(self.injector.localization.attention_records)
+                        print(
+                            "[FreeText] Attention localization locked; "
+                            f"using top-k refined mask (records={records}, coverage={coverage:.4f})."
+                        )
+                    elif not attention_state.get("warned_empty", False):
+                        attention_state["warned_empty"] = True
+                        print(
+                            "[FreeText] Attention capture produced no usable map; "
+                            "continuing with the initial layout mask."
+                        )
             latents = callback_kwargs.get("latents")
             if latents is not None:
                 updated_latents = self.injector.inject_step(
