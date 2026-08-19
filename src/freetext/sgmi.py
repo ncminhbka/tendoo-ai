@@ -95,13 +95,26 @@ class SpectralGlyphInjector:
         if not texts:
             return False
 
-        # Determine target device and dtype from VAE if available
+        # Keep the caller's execution device. With Accelerate CPU offload, a
+        # VAE parameter may temporarily report CPU even though its hook moves
+        # the module to CUDA for encode(); using that transient device causes
+        # CPU-input/CUDA-weight mismatches.
         target_device = device
+        # Accelerate CPU-offload keeps the module on CPU between calls, while
+        # its hook moves it to the GPU immediately before ``forward``. Use the
+        # hook's execution device when available; otherwise the wrapper device
+        # is the correct default.
+        if vae is not None:
+            for module in (vae, getattr(vae, "encoder", None)):
+                hook = getattr(module, "_hf_hook", None)
+                execution_device = getattr(hook, "execution_device", None)
+                if execution_device is not None:
+                    target_device = execution_device
+                    break
         target_dtype = dtype
         if vae is not None and hasattr(vae, "parameters"):
             try:
                 p = next(vae.parameters())
-                target_device = p.device
                 target_dtype = p.dtype
             except StopIteration:
                 pass
@@ -118,7 +131,25 @@ class SpectralGlyphInjector:
         # 2. Encode glyph image with VAE to get z0_glyph
         with torch.no_grad():
             if vae is not None and hasattr(vae, "encode"):
-                encoded = vae.encode(glyph_img_tensor)
+                try:
+                    encoded = vae.encode(glyph_img_tensor)
+                except RuntimeError as exc:
+                    # Some Accelerate versions install the hook only on the
+                    # first VAE forward. Retry once on the hook execution
+                    # device for the known CPU/CUDA input mismatch.
+                    message = str(exc)
+                    if "CPUBFloat16Type" not in message and "CPUFloatType" not in message:
+                        raise
+                    retry_device = None
+                    for module in (vae, getattr(vae, "encoder", None)):
+                        hook = getattr(module, "_hf_hook", None)
+                        retry_device = getattr(hook, "execution_device", None)
+                        if retry_device is not None:
+                            break
+                    if retry_device is None or str(retry_device) == "cpu":
+                        raise
+                    glyph_img_tensor = glyph_img_tensor.to(device=retry_device)
+                    encoded = vae.encode(glyph_img_tensor)
                 if hasattr(encoded, "latent_dist"):
                     self.z0_glyph = encoded.latent_dist.sample()
                 elif hasattr(encoded, "latents"):
