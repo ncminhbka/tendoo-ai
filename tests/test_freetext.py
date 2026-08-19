@@ -83,10 +83,18 @@ class TestFreeText(unittest.TestCase):
         self.assertIsNotNone(injector.z0_glyph)
         self.assertIsNotNone(injector.mask)
 
-        # Mock step injection
-        latents = torch.randn_like(injector.z0_glyph)
-        updated = injector.inject_step(latents, progress=0.5)
-        self.assertEqual(updated.shape, latents.shape)
+        # Mock step injection on 4D latents
+        latents_4d = torch.randn_like(injector.z0_glyph)
+        updated_4d = injector.inject_step(latents_4d, progress=0.5)
+        self.assertEqual(updated_4d.shape, latents_4d.shape)
+
+        # Mock step injection on FLUX 3D packed tokens [B, N, 64]
+        H_lat, W_lat = injector.z0_glyph.shape[-2], injector.z0_glyph.shape[-1]
+        num_patches = (H_lat // 2) * (W_lat // 2)
+        latents_3d = torch.randn((1, num_patches, 64), dtype=torch.float32)
+        updated_3d = injector.inject_step(latents_3d, progress=0.5)
+        self.assertEqual(updated_3d.shape, (1, num_patches, 64))
+        self.assertFalse(torch.isnan(updated_3d).any())
 
     def test_pipeline_dry_run(self):
         pipe = FreeTextFluxPipeline(pipe=None)

@@ -28,6 +28,32 @@ class FreeTextConfig:
     override_texts: Optional[List[str]] = None  # Explicit text list (if not extracted from prompt)
 
 
+def pack_latents(latents: torch.Tensor) -> torch.Tensor:
+    """
+    Packs 4D spatial latents [B, 16, H, W] into FLUX 3D packed tokens [B, (H//2)*(W//2), 64].
+    """
+    B, C, H, W = latents.shape
+    latents = latents.view(B, C, H // 2, 2, W // 2, 2)
+    latents = latents.permute(0, 2, 4, 1, 3, 5)
+    latents = latents.reshape(B, (H // 2) * (W // 2), C * 4)
+    return latents
+
+
+def unpack_latents(latents: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """
+    Unpacks FLUX 3D packed tokens [B, N, 64] into 4D spatial latents [B, 16, H_lat, W_lat].
+    """
+    B, N, D = latents.shape
+    H_lat = height // 8
+    W_lat = width // 8
+    H_p = H_lat // 2
+    W_p = W_lat // 2
+    latents = latents.view(B, H_p, W_p, 16, 2, 2)
+    latents = latents.permute(0, 3, 1, 4, 2, 5)
+    latents = latents.reshape(B, 16, H_lat, W_lat)
+    return latents
+
+
 class SpectralGlyphInjector:
     """
     Orchestrates the FreeText injection process for FLUX.2 and other DiT models.
@@ -44,6 +70,8 @@ class SpectralGlyphInjector:
         self.mask: Optional[torch.Tensor] = None
         self.regions: List[Dict] = []
         self.noise_ref: Optional[torch.Tensor] = None
+        self.img_height: int = 1024
+        self.img_width: int = 1024
 
     def prepare(
         self,
@@ -60,23 +88,36 @@ class SpectralGlyphInjector:
 
         :return: True if text targets were found and prepared, False otherwise.
         """
+        self.img_height = height
+        self.img_width = width
+
         texts = self.config.override_texts or extract_text_spans(prompt)
         if not texts:
-            # If no quoted texts, try fallback or disable
             return False
+
+        # Determine target device and dtype from VAE if available
+        target_device = device
+        target_dtype = dtype
+        if vae is not None and hasattr(vae, "parameters"):
+            try:
+                p = next(vae.parameters())
+                target_device = p.device
+                target_dtype = p.dtype
+            except StopIteration:
+                pass
 
         # 1. Render glyph canvas
         glyph_img_tensor, mask_pixel_tensor, self.regions = self.renderer.get_glyph_tensor(
             texts=texts,
             width=width,
             height=height,
-            device=device,
-            dtype=dtype,
+            device=target_device,
+            dtype=target_dtype,
         )
 
         # 2. Encode glyph image with VAE to get z0_glyph
         with torch.no_grad():
-            if hasattr(vae, "encode"):
+            if vae is not None and hasattr(vae, "encode"):
                 encoded = vae.encode(glyph_img_tensor)
                 if hasattr(encoded, "latent_dist"):
                     self.z0_glyph = encoded.latent_dist.sample()
@@ -88,14 +129,14 @@ class SpectralGlyphInjector:
                     self.z0_glyph = encoded
 
                 # Scale latent if scaling_factor is present
-                scaling_factor = getattr(vae.config, "scaling_factor", 0.3611)
-                shift_factor = getattr(vae.config, "shift_factor", 0.1159)
+                scaling_factor = getattr(getattr(vae, "config", None), "scaling_factor", 0.3611)
+                shift_factor = getattr(getattr(vae, "config", None), "shift_factor", 0.1159)
                 self.z0_glyph = (self.z0_glyph - shift_factor) * scaling_factor
             else:
                 # Mock / Dry-run mode: construct latent tensor directly
                 latent_h = height // 8
                 latent_w = width // 8
-                self.z0_glyph = torch.randn((1, 16, latent_h, latent_w), device=device, dtype=dtype)
+                self.z0_glyph = torch.randn((1, 16, latent_h, latent_w), device=target_device, dtype=target_dtype)
 
         # 3. Create latent-resolution binary mask
         lat_h, lat_w = self.z0_glyph.shape[-2], self.z0_glyph.shape[-1]
@@ -105,8 +146,8 @@ class SpectralGlyphInjector:
             latent_w=lat_w,
             img_w=width,
             img_h=height,
-            device=device,
-            dtype=dtype,
+            device=target_device,
+            dtype=target_dtype,
         )
 
         # Fixed reference noise for reproducibility during step trajectory
@@ -126,7 +167,6 @@ class SpectralGlyphInjector:
 
         # Cosine curve peaking in middle of injection window
         norm_t = (progress - t_start) / (t_end - t_start)
-        # Cosine bell: 0.5 * (1 - cos(2 * pi * norm_t)) or standard half-cosine
         weight = 0.5 * (1.0 + math.cos((norm_t - 0.5) * 2.0 * math.pi)) * self.config.injection_strength
         return float(weight)
 
@@ -138,8 +178,9 @@ class SpectralGlyphInjector:
     ) -> torch.Tensor:
         """
         Performs SGMI injection at current denoising step.
+        Handles both 4D spatial latents [B, 16, H, W] and FLUX 3D packed tokens [B, N, 64].
 
-        :param latents: Current model latents [B, C, H, W] or [B, N, C]
+        :param latents: Current model latents
         :param progress: Denoising progress in [0.0, 1.0]
         :param timestep_sigma: Noise level sigma (for Flow Matching, sigma = 1 - progress)
         :return: Updated latents with spectral glyph guidance
@@ -151,20 +192,40 @@ class SpectralGlyphInjector:
         if weight <= 1e-4:
             return latents
 
+        is_3d_packed = (latents.ndim == 3)
+
+        # If FLUX 3D packed format [B, N, 64], unpack to 4D [B, 16, H_lat, W_lat]
+        if is_3d_packed:
+            latents_4d = unpack_latents(latents, height=self.img_height, width=self.img_width)
+        else:
+            latents_4d = latents
+
+        cur_device = latents_4d.device
+        cur_dtype = latents_4d.dtype
+
+        # Ensure z0_glyph and noise_ref match current device and dtype
+        z0 = self.z0_glyph.to(device=cur_device, dtype=cur_dtype)
+        noise = self.noise_ref.to(device=cur_device, dtype=cur_dtype)
+        mask = self.mask.to(device=cur_device, dtype=cur_dtype)
+
+        # Expand batch size if needed
+        if z0.shape[0] != latents_4d.shape[0]:
+            z0 = z0.repeat(latents_4d.shape[0], 1, 1, 1)
+            noise = noise.repeat(latents_4d.shape[0], 1, 1, 1)
+            mask = mask.repeat(latents_4d.shape[0], 1, 1, 1)
+
         # Noise level for flow matching: z_ref(t) = (1 - sigma) * z0 + sigma * eps
         sigma = timestep_sigma if timestep_sigma is not None else (1.0 - progress)
-        z_ref_t = (1.0 - sigma) * self.z0_glyph + sigma * self.noise_ref
+        z_ref_t = (1.0 - sigma) * z0 + sigma * noise
 
         # Apply 2D Log-Gabor spectral modulation
-        z_sgmi = self.filter.apply_spectral_modulation(z_ref_t)
-
-        # Broadcast mask across batch and channels
-        mask_expanded = self.mask.to(device=latents.device, dtype=latents.dtype)
-        if mask_expanded.ndim < latents.ndim:
-            mask_expanded = mask_expanded.expand_as(latents)
+        z_sgmi = self.filter.apply_spectral_modulation(z_ref_t).to(device=cur_device, dtype=cur_dtype)
 
         # Annealed replacement: z(t) = (1 - w * M) * z(t) + (w * M) * z_sgmi
-        w_mask = weight * mask_expanded
-        updated_latents = (1.0 - w_mask) * latents + w_mask * z_sgmi.to(latents.device, latents.dtype)
+        w_mask = weight * mask
+        updated_4d = (1.0 - w_mask) * latents_4d + w_mask * z_sgmi
 
-        return updated_latents
+        # Pack back to 3D if original input was packed
+        if is_3d_packed:
+            return pack_latents(updated_4d)
+        return updated_4d
