@@ -101,7 +101,9 @@ def _status(metrics: dict, name: str) -> str:
         status = provenance[key].get("status", "unavailable")
         if status.startswith("unavailable"):
             return "unavailable"
-        return status
+        if status in ("measured", "proxy"):
+            return status
+        return "unavailable"
     return "legacy"
 
 

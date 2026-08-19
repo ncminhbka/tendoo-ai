@@ -91,13 +91,18 @@ def get_paddle_ocr():
     return _paddle_ocr
 
 
-def recognize_image_text(image_path: str) -> str:
-    """Read text with PaddleOCR's Vietnamese detector and recognizer."""
+def recognize_image_text(image_path: str) -> tuple[str, str]:
+    """Read text and return ``(text, engine_status)``.
+
+    ``measured`` means PaddleOCR ran successfully, including when it detected
+    zero text. That distinction is essential: an empty measured result is a
+    real model failure and must contribute CER=1/NED=0 to the benchmark.
+    """
     if not image_path or not os.path.exists(image_path):
-        return ""
+        return "", "no_image"
     ocr = get_paddle_ocr()
     if ocr is None:
-        return ""
+        return "", "unavailable"
     try:
         result = ocr.predict(image_path) if hasattr(ocr, "predict") else ocr.ocr(image_path, cls=True)
         detected = []
@@ -110,17 +115,18 @@ def recognize_image_text(image_path: str) -> str:
                         value = str(line[1][0]).strip()
                         if value:
                             detected.append(value)
-        return " ".join(detected)
+        return " ".join(detected), "measured"
     except Exception as exc:
         print(f"[benchmark] PaddleOCR failed for {image_path}: {exc}")
-        return ""
+        return "", "error"
 
 
 def evaluate_texts(detected_text: str, required_texts: list, image_path: str = None) -> dict:
     ocr_used = bool(image_path and os.path.exists(image_path))
+    ocr_status = "manual" if not image_path else "no_image"
     if ocr_used:
-        ocr_text = recognize_image_text(image_path)
-        if ocr_text:
+        ocr_text, ocr_status = recognize_image_text(image_path)
+        if ocr_status == "measured":
             detected_text = ocr_text
 
     prediction = normalize_text(detected_text).upper()
@@ -142,7 +148,7 @@ def evaluate_texts(detected_text: str, required_texts: list, image_path: str = N
     exact_ratio = round(exact_matches / count, 4)
     return {
         "detected_text": detected_text,
-        "ocr_status": "measured" if (not required_texts or detected_text) else "unavailable_or_empty",
+        "ocr_status": ocr_status,
         "ocr_method": "PaddleOCR-vi",
         "cer": avg_cer,
         "wer": round(total_wer / count, 4),

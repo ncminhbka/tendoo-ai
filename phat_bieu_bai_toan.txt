@@ -5,6 +5,8 @@ I. NGỮ CẢNH DỰ ÁN & PHÁT BIỂU BÀI TOÁN
 - Đề tài: Phát triển tính năng AI tạo và chỉnh sửa ảnh theo yêu cầu người dùng (Banner, Poster quảng cáo, ảnh sản phẩm, backdrop sự kiện...). Hỗ trợ cả sinh mới từ Text và chỉnh sửa dựa trên Image Upload.
 - yêu cầu sinh ảnh của người dùng là vô cùng phong phú, từ poster khuyến mại, ưu đãi, ảnh giới thiệu sản phẩm, banner khai trương, ảnh feedback của khách hàng, ảnh tin tuyển dung, menu món, cho đến các yêu cầu sinh tự do, chỉnh sửa ảnh tự do
 - Do đó tôi nghĩ mấu chốt là foundation model mạnh. ta chỉ nâng cấp khả năng sinh chữ tiếng việt và khả năng hiểu văn hoá việt (phở, áo dài, nón lá, ...)
+- Base model lựa chọn là FLUX.2 [klein] 4B base, sẽ áp dụng các ý tưởng của các paper lên model này, nhằm cải thiện khả năng sinh chữ tiếng việt, nhưng vẫn giữ khả năng sinh ảnh tốt
+- Paper lựa chọn để tham khảo ý tưởng là ...
 - Thách thức cốt lõi (Pain point): Các mô hình sinh ảnh Open-Source hiện nay gặp hạn chế lớn trong việc hiển thị text, đặc biệt là Tiếng Việt có dấu thanh và font chữ đặc thù. Vùng text thường bị méo, sai chính tả, mất dấu hoặc nhòe nét.
 - Mục tiêu: Đề xuất pipeline/mô hình giải quyết bài toán hiển thị text Tiếng Việt trên ảnh quảng cáo với chất lượng đạt khoảng 70-80% so với các mô hình thương mại hàng đầu (Ideogram, Midjourney, DALL-E 3).
 
