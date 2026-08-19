@@ -10,6 +10,26 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 import torch
 
+# Compatibility patch for Qwen3 used by FLUX.2 Klein on some Triton/CUDA
+# combinations.  Keep this before loading the Diffusers pipeline so the text
+# encoder uses the patched RoPE implementation from its first forward pass.
+try:
+    import transformers.models.qwen3.modeling_qwen3 as qwen3_mod
+
+    def custom_rope_forward(self, x, position_ids, **kwargs):
+        # inv_freq: (dim / 2,) -> (1, dim / 2, 1)
+        # position_ids: (batch, seq_len) -> (batch, 1, seq_len)
+        inv_freq_expanded = self.inv_freq[None, :, None].float()
+        position_ids_expanded = position_ids[:, None, :].float()
+        freqs = (inv_freq_expanded * position_ids_expanded).transpose(1, 2)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        # Match query/key/value dtype (normally bfloat16 on the GPU server).
+        return emb.cos().to(dtype=x.dtype), emb.sin().to(dtype=x.dtype)
+
+    qwen3_mod.Qwen3RotaryEmbedding.forward = custom_rope_forward
+except Exception as exc:
+    print(f"[Qwen3 RoPE patch] skipped: {exc}")
+
 # Ensure src is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 

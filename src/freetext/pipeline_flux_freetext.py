@@ -35,6 +35,11 @@ class FreeTextFluxPipeline:
         self.dtype = dtype
         self.injector = SpectralGlyphInjector(config=self.config)
 
+    @property
+    def is_live(self) -> bool:
+        """Whether a real Diffusers pipeline is attached (not CPU dry-run)."""
+        return self.pipe is not None
+
     @classmethod
     def from_pretrained(
         cls,
@@ -57,15 +62,14 @@ class FreeTextFluxPipeline:
         kwargs.pop("torch_dtype", None)
         kwargs.pop("dtype", None)
 
+        # FLUX.2 Klein has a different VAE/latent packing and text encoder from
+        # FLUX.1. Falling back to FluxPipeline can appear to work while silently
+        # producing incompatible latents, so only load the native class here.
         try:
             from diffusers import Flux2KleinPipeline
             pipeline_cls = Flux2KleinPipeline
         except ImportError:
-            try:
-                from diffusers import FluxPipeline
-                pipeline_cls = FluxPipeline
-            except ImportError:
-                pipeline_cls = None
+            pipeline_cls = None
 
         if pipeline_cls is None:
             print("[FreeText] Diffusers not installed or FLUX pipeline unavailable. Operating in mock/dry-run mode.")
@@ -73,7 +77,7 @@ class FreeTextFluxPipeline:
         else:
             print(f"[FreeText] Loading {model_id} (dtype={resolved_dtype})...")
             pipe = pipeline_cls.from_pretrained(model_id, torch_dtype=resolved_dtype, **kwargs)
-            if enable_cpu_offload and hasattr(pipe, "enable_model_cpu_offload"):
+            if enable_cpu_offload and device.startswith("cuda") and hasattr(pipe, "enable_model_cpu_offload"):
                 pipe.enable_model_cpu_offload()
             elif hasattr(pipe, "to"):
                 pipe.to(device)
@@ -94,10 +98,19 @@ class FreeTextFluxPipeline:
 
         return callback_on_step_end
 
+    def _get_execution_device(self):
+        """Return the device used by Diffusers/Accelerate for model execution."""
+        if self.pipe is not None:
+            execution_device = getattr(self.pipe, "_execution_device", None)
+            if execution_device is not None:
+                return execution_device
+        return self.device
+
     def generate(
         self,
         prompt: str,
         target_texts: Optional[List[str]] = None,
+        image: Optional[Union[Image.Image, List[Image.Image]]] = None,
         width: int = 1024,
         height: int = 1024,
         num_inference_steps: int = 50,
@@ -126,8 +139,8 @@ class FreeTextFluxPipeline:
             generator = torch.Generator(device=gen_device).manual_seed(seed)
 
         # Configure FreeText target texts
-        if target_texts:
-            self.config.override_texts = target_texts
+        # Do not leak an explicit text list into the next request.
+        self.config.override_texts = target_texts
         self.config.enabled = use_freetext
 
         # If running with live Diffusers pipeline
@@ -139,7 +152,7 @@ class FreeTextFluxPipeline:
                     vae=vae,
                     height=height,
                     width=width,
-                    device=self.device,
+                    device=self._get_execution_device(),
                     dtype=self.dtype,
                 )
                 if has_text:
@@ -156,9 +169,19 @@ class FreeTextFluxPipeline:
                 "generator": generator,
                 **kwargs,
             }
+            if image is not None:
+                if "image" in pipe_kwargs:
+                    raise ValueError("Pass the edit image either via image= or kwargs, not both")
+                pipe_kwargs["image"] = image
             if callback is not None:
-                pipe_kwargs["callback_on_step_end"] = callback
-                pipe_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
+                # Diffusers versions differ in the callback tensor allow-list.
+                # Only pass latents when the installed Klein pipeline exposes it.
+                callback_inputs = getattr(self.pipe, "_callback_tensor_inputs", ())
+                if "latents" in callback_inputs:
+                    pipe_kwargs["callback_on_step_end"] = callback
+                    pipe_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
+                else:
+                    print("[FreeText] Warning: pipeline does not expose callback latents; running base sampling.")
 
             result = self.pipe(**pipe_kwargs)
             return result.images[0]

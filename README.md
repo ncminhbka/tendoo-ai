@@ -25,6 +25,37 @@ Tập đề thi đánh giá năng lực mô hình bao gồm **111 cases** (65 T2
 
 ## 💻 Hướng Dẫn Sử Dụng Trên Server
 
+### FreeText + FLUX.2 [klein] base 4B
+
+FreeText là plug-in inference-time: không fine-tune và không thay đổi weights. Với
+checkpoint base, dùng 50 bước và guidance 4.0; pipeline tự truyền `image=` cho
+tác vụ chỉnh sửa ảnh nếu có ảnh đầu vào.
+
+```python
+import torch
+from freetext import FreeTextFluxPipeline
+
+pipe = FreeTextFluxPipeline.from_pretrained(
+    "black-forest-labs/FLUX.2-klein-base-4B",
+    device="cuda",
+    torch_dtype=torch.bfloat16,
+    enable_cpu_offload=True,
+)
+
+image = pipe.generate(
+    'Poster quảng cáo với dòng chữ "PHỞ BÒ GIA TRUYỀN" và "ƯU ĐÃI 50%", phong cách Việt Nam',
+    target_texts=["PHỞ BÒ GIA TRUYỀN", "ƯU ĐÃI 50%"],
+    width=1024, height=1024,
+    num_inference_steps=50, guidance_scale=4.0,
+    seed=42,
+)
+image.save("generated/freetext_flux2_klein_base.png")
+```
+
+Nếu Diffusers chưa có `Flux2KleinPipeline`, mã sẽ chuyển sang dry-run thay vì
+fallback sai sang pipeline FLUX.1. Hãy cài Diffusers mới trên GPU server trước
+khi chạy inference thật.
+
 ```bash
 # 1. Kéo mã nguồn mới nhất
 git pull origin main
