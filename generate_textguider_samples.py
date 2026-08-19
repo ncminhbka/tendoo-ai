@@ -240,9 +240,12 @@ def main():
         print("[Runner] Running in dry-run mode...")
         pipeline = TextGuiderFluxPipeline(pipe=None, config=config, device="cpu", dtype=torch.float32)
     else:
-        print(f"[Runner] Loading FLUX.2 Klein pipeline ({args.model_id})...")
+        model_target = args.model_id
+        if os.path.exists(os.path.expanduser(str(model_target))):
+            model_target = str(Path(os.path.expanduser(str(model_target))).resolve())
+        print(f"[Runner] Loading FLUX.2 Klein pipeline ({model_target})...")
         pipeline = TextGuiderFluxPipeline.from_pretrained(
-            model_id=args.model_id,
+            model_id=model_target,
             config=config,
             device=device,
             torch_dtype=resolved_dtype,
