@@ -92,7 +92,16 @@ class Flux2AttentionRecorder:
                 value = probs[..., indices].mean(dim=(1, 3))  # B,Q_chunk
                 output.setdefault(target_index, []).append(value.cpu())
 
-        self.pending[layer_name] = {k: torch.cat(v, dim=1) for k, v in output.items()}
+        normalized_output = {}
+        for target_index, chunks in output.items():
+            attn_map = torch.cat(chunks, dim=1)
+            # Eq. (2) is linearly normalized to [0, 1] before timestep-layer
+            # selection. Normalize per batch item, preserving the spatial map
+            # rather than renormalizing it to a probability distribution.
+            min_value = attn_map.amin(dim=1, keepdim=True)
+            max_value = attn_map.amax(dim=1, keepdim=True)
+            normalized_output[target_index] = (attn_map - min_value) / (max_value - min_value + 1e-8)
+        self.pending[layer_name] = normalized_output
 
 
 class Flux2CaptureProcessor:

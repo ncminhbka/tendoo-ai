@@ -204,8 +204,6 @@ class AttentionLocalization:
 
     @staticmethod
     def _soft_iou(pred: torch.Tensor, ref: torch.Tensor) -> float:
-        pred = pred / (pred.sum() + 1e-8)
-        ref = ref / (ref.sum() + 1e-8)
         intersection = (pred * ref).sum()
         union = pred.sum() + ref.sum() - intersection
         return float((intersection / (union + 1e-8)).item())

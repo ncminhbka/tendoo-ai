@@ -163,6 +163,12 @@ class TestFreeText(unittest.TestCase):
         self.assertEqual(mask.shape, (1, 1, 8, 8))
         self.assertGreater(float(mask.sum()), 0.0)
 
+    def test_soft_iou_uses_eq3_without_sum_normalization(self):
+        score = AttentionLocalization._soft_iou(
+            torch.tensor([0.2, 0.2]), torch.tensor([1.0, 0.0])
+        )
+        self.assertAlmostEqual(score, 0.2 / 1.2, places=6)
+
     def test_sgmi_injector_lifecycle(self):
         config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.4, injection_strength=1.0)
         injector = SpectralGlyphInjector(config=config)
