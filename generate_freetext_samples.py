@@ -116,7 +116,10 @@ def main():
                 enable_cpu_offload=True,
             )
         except Exception as e:
-            print(f"[Warning] Could not load model ({e}). Falling back to Dry-Run mode.")
+            print(f"[Warning] Could not load model ({e}). Full details:")
+            import traceback
+            traceback.print_exc()
+            print("Falling back to Dry-Run mode.")
             pipe = FreeTextFluxPipeline(pipe=None)
 
     prompts_to_run = SAMPLE_PROMPTS[:args.num_samples] if args.num_samples else SAMPLE_PROMPTS

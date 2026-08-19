@@ -41,13 +41,22 @@ class FreeTextFluxPipeline:
         model_id: str = "black-forest-labs/FLUX.2-klein-base-4B",
         config: Optional[FreeTextConfig] = None,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
-        dtype: torch.dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        dtype: Optional[torch.dtype] = None,
+        torch_dtype: Optional[torch.dtype] = None,
         enable_cpu_offload: bool = True,
         **kwargs,
     ):
         """
         Loads pre-trained FLUX.2 pipeline and wraps it with FreeText.
         """
+        resolved_dtype = torch_dtype or dtype
+        if resolved_dtype is None:
+            resolved_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+
+        # Avoid duplicate kwargs
+        kwargs.pop("torch_dtype", None)
+        kwargs.pop("dtype", None)
+
         try:
             from diffusers import Flux2KleinPipeline
             pipeline_cls = Flux2KleinPipeline
@@ -62,14 +71,14 @@ class FreeTextFluxPipeline:
             print("[FreeText] Diffusers not installed or FLUX pipeline unavailable. Operating in mock/dry-run mode.")
             pipe = None
         else:
-            print(f"[FreeText] Loading {model_id}...")
-            pipe = pipeline_cls.from_pretrained(model_id, torch_dtype=dtype, **kwargs)
+            print(f"[FreeText] Loading {model_id} (dtype={resolved_dtype})...")
+            pipe = pipeline_cls.from_pretrained(model_id, torch_dtype=resolved_dtype, **kwargs)
             if enable_cpu_offload and hasattr(pipe, "enable_model_cpu_offload"):
                 pipe.enable_model_cpu_offload()
             elif hasattr(pipe, "to"):
                 pipe.to(device)
 
-        return cls(pipe=pipe, config=config, device=device, dtype=dtype)
+        return cls(pipe=pipe, config=config, device=device, dtype=resolved_dtype)
 
     def create_step_callback(self, num_inference_steps: int):
         """
