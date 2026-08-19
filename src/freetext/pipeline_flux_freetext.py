@@ -152,7 +152,11 @@ class FreeTextFluxPipeline:
                     vae=vae,
                     height=height,
                     width=width,
-                    device=self._get_execution_device(),
+                    # With Accelerate CPU offload, ``_execution_device`` may
+                    # still report CPU immediately before the VAE hook moves
+                    # the module to CUDA. Create the glyph tensor on the
+                    # configured inference device to avoid CPU/CUDA mismatch.
+                    device=self.device,
                     dtype=self.dtype,
                 )
                 if has_text:
