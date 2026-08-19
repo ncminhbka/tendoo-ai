@@ -89,6 +89,20 @@ class TestFreeText(unittest.TestCase):
         self.assertEqual(recorder.records[0]["map"].shape, (1, 4))
         self.assertTrue(torch.isfinite(recorder.records[0]["map"]).all())
 
+    def test_attention_recorder_keeps_conditional_map_under_cfg(self):
+        recorder = Flux2AttentionRecorder(target_groups=[[0]], sink_indices=[], max_query_chunk=2)
+        conditional_query = torch.ones((1, 4, 2, 3), dtype=torch.float32)
+        unconditional_query = torch.full((1, 4, 2, 3), -1.0, dtype=torch.float32)
+        keys = torch.randn((1, 2, 2, 3), dtype=torch.float32)
+        recorder.capture("block.0", conditional_query, keys, text_len=1)
+        recorder.capture("block.0", unconditional_query, keys, text_len=1)
+        recorder.finalize_step(0)
+        self.assertEqual(len(recorder.records), 1)
+        expected = Flux2AttentionRecorder(target_groups=[[0]], sink_indices=[], max_query_chunk=2)
+        expected.capture("block.0", conditional_query, keys, text_len=1)
+        expected.finalize_step(0)
+        self.assertTrue(torch.equal(recorder.records[0]["map"], expected.records[0]["map"]))
+
     def test_attention_localization_selects_refined_mask(self):
         localization = AttentionLocalization(top_k_pairs=2)
         base = torch.zeros((1, 16), dtype=torch.float32)

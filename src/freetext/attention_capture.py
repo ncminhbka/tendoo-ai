@@ -49,6 +49,13 @@ class Flux2AttentionRecorder:
         Tensors use Diffusers' [batch, sequence, heads, head_dim] convention.
         Only selected token columns are materialized and moved to CPU.
         """
+        # With classifier-free guidance, the Diffusers FLUX.2 pipeline calls
+        # the transformer twice for each denoising step: conditional first,
+        # unconditional second.  Keep the first map so the unconditional
+        # pass cannot overwrite the prompt-aligned attribution used by
+        # localization.
+        if layer_name in self.pending:
+            return
         if not self.target_groups or query_img.ndim != 4 or key_all.ndim != 4:
             return
         batch, query_len, heads, head_dim = query_img.shape
@@ -174,6 +181,11 @@ class Flux2SingleCaptureProcessor:
     def __init__(self, recorder: Flux2AttentionRecorder, layer_name: str):
         self.recorder = recorder
         self.layer_name = layer_name
+        try:
+            from diffusers.models.transformers.transformer_flux2 import Flux2ParallelSelfAttnProcessor
+            self._base_cls = Flux2ParallelSelfAttnProcessor
+        except ImportError as exc:  # pragma: no cover - exercised on server only
+            raise ImportError("This capture processor requires a Diffusers Flux2 implementation") from exc
 
     def __call__(self, attn, hidden_states, attention_mask=None, image_rotary_emb=None):
         from diffusers.models.transformers.transformer_flux2 import apply_rotary_emb, dispatch_attention_fn
