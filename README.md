@@ -29,7 +29,10 @@ Tập đề thi đánh giá năng lực mô hình bao gồm **111 cases** (65 T2
 
 FreeText là plug-in inference-time: không fine-tune và không thay đổi weights. Với
 checkpoint base, dùng 50 bước và guidance 4.0; pipeline tự truyền `image=` cho
-tác vụ chỉnh sửa ảnh nếu có ảnh đầu vào.
+tác vụ chỉnh sửa ảnh nếu có ảnh đầu vào. Mặc định pipeline dùng attention
+localization theo paper (target token + sink token, top-k timestep/layer,
+Otsu/DBSCAN refinement); nếu phiên bản Diffusers không expose đúng block,
+pipeline tự fallback về layout mask.
 
 ```python
 import torch

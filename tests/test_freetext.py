@@ -89,6 +89,24 @@ class TestFreeText(unittest.TestCase):
         self.assertEqual(recorder.records[0]["map"].shape, (1, 4))
         self.assertTrue(torch.isfinite(recorder.records[0]["map"]).all())
 
+    def test_attention_localization_selects_refined_mask(self):
+        localization = AttentionLocalization(top_k_pairs=2)
+        base = torch.zeros((1, 16), dtype=torch.float32)
+        base[:, 5:7] = 1.0
+        localization.attention_records = [
+            {"step": 5, "layer": "block.0", "target": 0, "map": base},
+            {"step": 6, "layer": "block.1", "target": 0, "map": base * 0.9},
+        ]
+        mask = localization.build_attention_mask(
+            regions=[{"box": (4, 0, 12, 16)}],
+            target_h=8,
+            target_w=8,
+            img_w=16,
+            img_h=16,
+        )
+        self.assertEqual(mask.shape, (1, 1, 8, 8))
+        self.assertGreater(float(mask.sum()), 0.0)
+
     def test_sgmi_injector_lifecycle(self):
         config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.8, injection_strength=0.85)
         injector = SpectralGlyphInjector(config=config)
