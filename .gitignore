@@ -23,6 +23,7 @@ ENV/
 
 # Output Images & Media
 generated/
+outputs/
 *.png
 *.jpg
 *.jpeg
