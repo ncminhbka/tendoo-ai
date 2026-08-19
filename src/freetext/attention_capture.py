@@ -95,6 +95,11 @@ class Flux2CaptureProcessor:
         self.recorder = recorder
         self.layer_name = layer_name
         try:
+            from diffusers.models.transformers.transformer_flux2 import Flux2ParallelSelfAttnProcessor
+            self._base_cls = Flux2ParallelSelfAttnProcessor
+        except ImportError as exc:  # pragma: no cover - exercised on server only
+            raise ImportError("This capture processor requires a Diffusers Flux2 implementation") from exc
+        try:
             from diffusers.models.transformers.transformer_flux2 import (
                 Flux2AttnProcessor,
             )
@@ -189,7 +194,12 @@ class Flux2SingleCaptureProcessor:
         if text_len:
             self.recorder.capture(self.layer_name, query[:, text_len:], key, text_len)
         attn_output = dispatch_attention_fn(
-            query, key, value, attn_mask=attention_mask, backend=None, parallel_config=None
+            query,
+            key,
+            value,
+            attn_mask=attention_mask,
+            backend=getattr(self._base_cls, "_attention_backend", None),
+            parallel_config=getattr(self._base_cls, "_parallel_config", None),
         ).flatten(2, 3).to(query.dtype)
         mlp_hidden_states = attn.mlp_act_fn(mlp_hidden_states)
         return attn.to_out(torch.cat([attn_output, mlp_hidden_states], dim=-1))
