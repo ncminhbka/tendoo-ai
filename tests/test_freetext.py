@@ -25,6 +25,7 @@ from freetext.sgmi import (
     unpatchify_vae_latents,
 )
 from freetext.pipeline_flux_freetext import FreeTextFluxPipeline
+from freetext.attention_capture import Flux2AttentionRecorder
 
 
 class TestFreeText(unittest.TestCase):
@@ -77,6 +78,16 @@ class TestFreeText(unittest.TestCase):
         arr = np.concatenate([np.ones((50, 50)) * 0.1, np.ones((50, 50)) * 0.9])
         thresh = otsu_threshold(arr)
         self.assertTrue(0.1 < thresh < 0.9)
+
+    def test_attention_recorder_uses_joint_denominator(self):
+        recorder = Flux2AttentionRecorder(target_groups=[[0]], sink_indices=[1], max_query_chunk=2)
+        query = torch.randn((1, 4, 2, 3), dtype=torch.float32)
+        keys = torch.randn((1, 6, 2, 3), dtype=torch.float32)
+        recorder.capture("block.0", query, keys, text_len=2)
+        recorder.finalize_step(3)
+        self.assertEqual(len(recorder.records), 1)
+        self.assertEqual(recorder.records[0]["map"].shape, (1, 4))
+        self.assertTrue(torch.isfinite(recorder.records[0]["map"]).all())
 
     def test_sgmi_injector_lifecycle(self):
         config = FreeTextConfig(enabled=True, t_start=0.2, t_end=0.8, injection_strength=0.85)

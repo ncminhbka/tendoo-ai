@@ -88,12 +88,28 @@ class FreeTextFluxPipeline:
 
         return cls(pipe=pipe, config=config, device=device, dtype=resolved_dtype)
 
-    def create_step_callback(self, num_inference_steps: int):
+    def create_step_callback(self, num_inference_steps: int, attention_state: Optional[Dict[str, Any]] = None):
         """
         Creates a Diffusers-compatible `callback_on_step_end` callback for FLUX sampling.
         """
         def callback_on_step_end(pipe, step: int, timestep: torch.Tensor, callback_kwargs: Dict[str, Any]):
             progress = (step + 1) / max(num_inference_steps, 1)
+            if attention_state is not None:
+                self.injector.localization.finalize_attention_step(attention_state["recorder"], step)
+                if not attention_state["locked"] and progress >= attention_state["lock_progress"]:
+                    attention_mask = self.injector.localization.build_attention_mask(
+                        regions=self.injector.regions,
+                        target_h=self.injector.z0_glyph.shape[-2],
+                        target_w=self.injector.z0_glyph.shape[-1],
+                        img_w=self.injector.img_width,
+                        img_h=self.injector.img_height,
+                        device=self.injector.z0_glyph.device,
+                        dtype=self.injector.z0_glyph.dtype,
+                    )
+                    if attention_mask is not None:
+                        self.injector.mask = attention_mask
+                        attention_state["locked"] = True
+                        print("[FreeText] Attention localization locked; using top-k refined mask.")
             latents = callback_kwargs.get("latents")
             if latents is not None:
                 updated_latents = self.injector.inject_step(latents, progress=progress)
@@ -150,6 +166,8 @@ class FreeTextFluxPipeline:
         # If running with live Diffusers pipeline
         if self.pipe is not None:
             vae = getattr(self.pipe, "vae", None)
+            attention_state = None
+            capture_handle = None
             if use_freetext and vae is not None:
                 has_text = self.injector.prepare(
                     prompt=prompt,
@@ -166,7 +184,27 @@ class FreeTextFluxPipeline:
                 if has_text:
                     print(f"[FreeText] Active: Targets={self.config.override_texts or extract_text_spans(prompt)}")
 
-            callback = self.create_step_callback(num_inference_steps) if use_freetext else None
+                    if self.config.localization_mode == "attention":
+                        tokenizer = getattr(self.pipe, "tokenizer", None)
+                        transformer = getattr(self.pipe, "transformer", None)
+                        if tokenizer is not None and transformer is not None:
+                            try:
+                                capture_handle, recorder = self.injector.localization.install_flux2_capture(
+                                    transformer,
+                                    tokenizer,
+                                    prompt,
+                                    self.config.override_texts or extract_text_spans(prompt),
+                                )
+                                attention_state = {
+                                    "recorder": recorder,
+                                    "locked": False,
+                                    "lock_progress": min(max(self.config.localization_warmup_ratio, 0.05), 0.8),
+                                }
+                                print("[FreeText] Attention localization capture enabled.")
+                            except Exception as exc:
+                                print(f"[FreeText] Attention capture unavailable; using layout mask: {exc}")
+
+            callback = self.create_step_callback(num_inference_steps, attention_state) if use_freetext else None
 
             pipe_kwargs = {
                 "prompt": prompt,
@@ -191,8 +229,12 @@ class FreeTextFluxPipeline:
                 else:
                     print("[FreeText] Warning: pipeline does not expose callback latents; running base sampling.")
 
-            result = self.pipe(**pipe_kwargs)
-            return result.images[0]
+            try:
+                result = self.pipe(**pipe_kwargs)
+                return result.images[0]
+            finally:
+                if capture_handle is not None:
+                    capture_handle.close(getattr(self.pipe, "transformer", None))
 
         # Dry-run / CPU simulation mode (creates demonstration canvas for testing pipeline)
         print(f"[FreeText Dry-Run] Simulating generation for prompt: {prompt[:60]}... (use_freetext={use_freetext})")

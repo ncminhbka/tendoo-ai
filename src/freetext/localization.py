@@ -62,9 +62,158 @@ class AttentionLocalization:
         self.smoothing_kernel_size = smoothing_kernel_size
         self.top_k_pairs = top_k_pairs
         self.captured_attentions: Dict[str, torch.Tensor] = {}
+        self.attention_records: List[Dict] = []
+        self.target_token_groups: List[List[int]] = []
+        self.sink_token_indices: List[int] = []
 
     def clear(self):
         self.captured_attentions.clear()
+        self.attention_records.clear()
+
+    @staticmethod
+    def _token_groups(tokenizer, prompt: str, texts: List[str]) -> Tuple[List[List[int]], List[int]]:
+        """Map target spans to tokenizer positions, with an ID fallback."""
+        groups: List[List[int]] = []
+        try:
+            encoded = tokenizer(prompt, return_offsets_mapping=True, add_special_tokens=True)
+            offsets = encoded["offset_mapping"]
+            input_ids = encoded["input_ids"]
+            if hasattr(input_ids, "tolist"):
+                input_ids = input_ids.tolist()
+            if input_ids and isinstance(input_ids[0], list):
+                input_ids = input_ids[0]
+            for text in texts:
+                start = prompt.find(text)
+                end = start + len(text) if start >= 0 else -1
+                groups.append([
+                    i for i, (left, right) in enumerate(offsets)
+                    if end > left and start < right and right > left
+                ])
+            special_ids = set(getattr(tokenizer, "all_special_ids", []))
+            sinks = [i for i, token_id in enumerate(input_ids) if token_id in special_ids]
+        except Exception:
+            full = tokenizer(prompt, add_special_tokens=True)["input_ids"]
+            target_ids = [tokenizer(text, add_special_tokens=False)["input_ids"] for text in texts]
+            groups = []
+            for ids in target_ids:
+                found = []
+                for start in range(max(0, len(full) - len(ids) + 1)):
+                    if full[start : start + len(ids)] == ids:
+                        found = list(range(start, start + len(ids)))
+                        break
+                groups.append(found)
+            special_ids = set(getattr(tokenizer, "all_special_ids", []))
+            sinks = [i for i, token_id in enumerate(full) if token_id in special_ids]
+        if not sinks:
+            length = max((max(g) for g in groups if g), default=1) + 1
+            sinks = [0, max(0, length - 1)]
+        return groups, sinks
+
+    def configure_attention(self, tokenizer, prompt: str, texts: List[str]) -> Tuple[List[List[int]], List[int]]:
+        self.target_token_groups, self.sink_token_indices = self._token_groups(tokenizer, prompt, texts)
+        return self.target_token_groups, self.sink_token_indices
+
+    def install_flux2_capture(self, transformer, tokenizer, prompt: str, texts: List[str]):
+        from .attention_capture import Flux2AttentionRecorder, install_flux2_capture
+
+        groups, sinks = self.configure_attention(tokenizer, prompt, texts)
+        encoded = tokenizer(prompt, add_special_tokens=True)["input_ids"]
+        if hasattr(encoded, "tolist"):
+            encoded = encoded.tolist()
+        if encoded and isinstance(encoded[0], list):
+            encoded = encoded[0]
+        recorder = Flux2AttentionRecorder(groups, sinks, text_len=len(encoded))
+        handle = install_flux2_capture(transformer, recorder)
+        return handle, recorder
+
+    def finalize_attention_step(self, recorder, step: int) -> None:
+        recorder.finalize_step(step)
+        self.attention_records.extend(recorder.records)
+        recorder.records.clear()
+
+    @staticmethod
+    def _grid_shape(num_tokens: int, img_h: int, img_w: int) -> Tuple[int, int]:
+        ratio = img_h / max(img_w, 1)
+        h = max(1, int(round((num_tokens * ratio) ** 0.5)))
+        while h > 1 and num_tokens % h:
+            h -= 1
+        return h, max(1, num_tokens // h)
+
+    @staticmethod
+    def _soft_iou(pred: torch.Tensor, ref: torch.Tensor) -> float:
+        pred = pred / (pred.sum() + 1e-8)
+        ref = ref / (ref.sum() + 1e-8)
+        intersection = (pred * ref).sum()
+        union = pred.sum() + ref.sum() - intersection
+        return float((intersection / (union + 1e-8)).item())
+
+    def _topology_mask(self, attn_map: torch.Tensor) -> torch.Tensor:
+        """Otsu + DBSCAN/connected-component refinement from paper Sec. 3.1.3."""
+        normalized = attn_map - attn_map.min()
+        normalized = normalized / (normalized.max() + 1e-8)
+        threshold = otsu_threshold(normalized.numpy())
+        foreground = normalized.numpy() >= threshold
+        coords = np.argwhere(foreground)
+        if len(coords) == 0:
+            return (normalized > 0).float()
+        labels = None
+        try:
+            from sklearn.cluster import DBSCAN
+            labels = DBSCAN(eps=2.0, min_samples=max(2, min(8, len(coords) // 100))).fit(coords).labels_
+        except Exception:
+            try:
+                from scipy import ndimage
+                labels, _ = ndimage.label(foreground, structure=np.ones((3, 3), dtype=np.uint8))
+                labels = labels[tuple(coords.T)] - 1
+            except Exception:
+                return torch.from_numpy(foreground.astype(np.float32))
+        best_label, best_score = None, -1.0
+        for label in set(int(x) for x in labels if x >= 0):
+            points = coords[labels == label]
+            score = float(normalized.numpy()[points[:, 0], points[:, 1]].mean())
+            if score > best_score:
+                best_label, best_score = label, score
+        if best_label is None:
+            return torch.from_numpy(foreground.astype(np.float32))
+        selected = np.zeros_like(foreground, dtype=np.float32)
+        selected[coords[labels == best_label, 0], coords[labels == best_label, 1]] = 1.0
+        return torch.from_numpy(selected)
+
+    def build_attention_mask(
+        self,
+        regions: List[Dict],
+        target_h: int,
+        target_w: int,
+        img_w: int,
+        img_h: int,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ) -> Optional[torch.Tensor]:
+        """Select top-K timestep/layer maps and return a latent-space mask."""
+        if not self.attention_records or not regions:
+            return None
+        grouped: Dict[int, List[Dict]] = {}
+        for record in self.attention_records:
+            grouped.setdefault(int(record["target"]), []).append(record)
+        result = torch.zeros((1, 1, target_h, target_w), dtype=torch.float32)
+        for target_index, records in grouped.items():
+            region = regions[min(target_index, len(regions) - 1)]
+            sample = records[0]["map"][0]
+            qh, qw = self._grid_shape(sample.numel(), img_h, img_w)
+            ref = torch.zeros((1, 1, img_h, img_w), dtype=torch.float32)
+            x1, y1, x2, y2 = region["box"]
+            ref[:, :, max(0, y1):min(img_h, y2), max(0, x1):min(img_w, x2)] = 1.0
+            ref = F.interpolate(ref, size=(qh, qw), mode="bilinear", align_corners=False).squeeze()
+            scored = []
+            for record in records:
+                current = record["map"][0].view(qh, qw).float()
+                scored.append((self._soft_iou(current, ref), current))
+            selected = [current for _, current in sorted(scored, key=lambda x: x[0], reverse=True)[: self.top_k_pairs]]
+            aggregate = torch.stack(selected).mean(dim=0)
+            refined = self._topology_mask(aggregate)
+            refined = F.interpolate(refined[None, None], size=(target_h, target_w), mode="bilinear", align_corners=False)
+            result = torch.maximum(result, (refined > 0.3).float())
+        return result.to(device=device, dtype=dtype)
 
     def register_hook(self, module: torch.nn.Module, layer_name: str):
         """

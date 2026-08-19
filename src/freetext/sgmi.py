@@ -26,6 +26,9 @@ class FreeTextConfig:
     bandwidth_ratio: float = 0.55 # Log-Gabor bandwidth ratio
     font_path: Optional[str] = None
     override_texts: Optional[List[str]] = None  # Explicit text list (if not extracted from prompt)
+    localization_mode: str = "attention"  # "attention" or "layout"
+    localization_warmup_ratio: float = 0.30
+    top_k_attention_pairs: int = 4
 
 
 def pack_latents(latents: torch.Tensor) -> torch.Tensor:
@@ -98,7 +101,7 @@ class SpectralGlyphInjector:
             center_freq=self.config.center_freq,
             bandwidth_ratio=self.config.bandwidth_ratio,
         )
-        self.localization = AttentionLocalization()
+        self.localization = AttentionLocalization(top_k_pairs=self.config.top_k_attention_pairs)
         self.z0_glyph: Optional[torch.Tensor] = None
         self.mask: Optional[torch.Tensor] = None
         self.regions: List[Dict] = []
@@ -123,6 +126,10 @@ class SpectralGlyphInjector:
         """
         self.img_height = height
         self.img_width = width
+        # Each request must select localization maps from its own prompt and
+        # denoising trajectory, especially when one pipeline serves a batch
+        # of comparison prompts.
+        self.localization.clear()
 
         texts = self.config.override_texts or extract_text_spans(prompt)
         if not texts:
