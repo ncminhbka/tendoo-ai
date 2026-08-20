@@ -239,6 +239,15 @@ class TextGuiderFluxPipeline:
         scheduler = pipe.scheduler
         vae = pipe.vae
 
+        # TextGuider differentiates with respect to the latent, never with
+        # respect to model weights. Freezing the transformer parameters is
+        # essential on 24 GB GPUs: otherwise autograd also allocates gradient
+        # buffers for the 4B model during the attention-guidance backward.
+        transformer_was_training = transformer.training
+        transformer.eval()
+        for parameter in transformer.parameters():
+            parameter.requires_grad_(False)
+
         prompt_embeds, txt_ids = self._encode(pipe, prompt)
         prompt_embeds = prompt_embeds.to(device=self.device, dtype=self.dtype)
 
@@ -436,6 +445,9 @@ class TextGuiderFluxPipeline:
             latents_decoded = (latents_decoded / vae.config.scaling_factor) + vae.config.shift_factor
             image = vae.decode(latents_decoded, return_dict=False)[0]
             image = pipe.image_processor.postprocess(image)[0]
+
+        if transformer_was_training:
+            transformer.train()
 
         return image
 
