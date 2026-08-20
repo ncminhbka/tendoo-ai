@@ -13,7 +13,7 @@ những gì code TextGuider cũ đã **giả định sai hoặc chưa verify**. 
 | Pipeline | `Flux2KleinPipeline` | đúng |
 | Transformer | `Flux2Transformer2DModel` (diffusers) | đúng (đã dùng đúng tên) |
 | Text encoder | `Qwen3ForCausalLM` | đúng model, nhưng **cách dùng sai** (xem mục 3) |
-| Tokenizer | `Qwen2TokenizerFast` | code dùng `apply_chat_template` — **không đúng bản chất** |
+| Tokenizer | `Qwen2Tokenizer` (runtime checkpoint; có thể biến thể Fast tùy package) | encode_prompt thực tế dùng đường tokenize raw, padding tới 512 |
 | VAE | `AutoencoderKLFlux2` | không tương tác trực tiếp |
 | Scheduler | `FlowMatchEulerDiscreteScheduler` | đúng |
 
