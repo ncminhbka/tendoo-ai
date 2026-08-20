@@ -265,9 +265,26 @@ class TextGuiderFluxPipeline:
         shape = (1, (lat_h // 2) * (lat_w // 2), num_channels)
         latents = torch.randn(shape, device=self.device, dtype=self.dtype, generator=generator)
 
-        img_ids = pipe._prepare_latent_image_ids(
-            latents.shape[0], lat_h // 2, lat_w // 2, self.device, self.dtype
-        )
+        # Diffusers renamed the Flux2 helper from _prepare_latent_image_ids
+        # to _prepare_latent_ids. The latter consumes the unpacked 4D latent
+        # shape, while our denoising loop already stores packed 3D latents.
+        if hasattr(pipe, "_prepare_latent_ids"):
+            latent_shape = (
+                latents.shape[0], num_channels // 4, lat_h // 2, lat_w // 2
+            )
+            latent_shape_probe = torch.empty(
+                latent_shape, device=self.device, dtype=self.dtype
+            )
+            img_ids = pipe._prepare_latent_ids(latent_shape_probe).to(self.device)
+        elif hasattr(pipe, "_prepare_latent_image_ids"):
+            img_ids = pipe._prepare_latent_image_ids(
+                latents.shape[0], lat_h // 2, lat_w // 2, self.device, self.dtype
+            )
+        else:
+            raise AttributeError(
+                "Flux2 pipeline exposes neither _prepare_latent_ids nor "
+                "_prepare_latent_image_ids"
+            )
 
         scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = scheduler.timesteps
