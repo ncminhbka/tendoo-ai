@@ -56,9 +56,8 @@ try:
 except Exception as exc:
     print(f"[Qwen3 RoPE patch] skipped: {exc}")
 
-# Package "textguider/" nằm cùng cấp với script này (không phải src/textguider
-# như bản trước giả định — sửa lại cho khớp cấu trúc thư mục thật).
-sys.path.insert(0, str(Path(__file__).parent))
+# The package lives under src/textguider in this repository.
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from textguider import (
     TextGuiderConfig,
