@@ -87,6 +87,7 @@ class TextGuiderFluxPipeline:
         dtype: Optional[torch.dtype] = None,
         torch_dtype: Optional[torch.dtype] = None,
         enable_cpu_offload: bool = True,
+        device_map: Optional[str] = None,
         **kwargs,
     ):
         if device is None:
@@ -109,8 +110,13 @@ class TextGuiderFluxPipeline:
             pipe = None
         else:
             print(f"[TextGuider] Loading {model_id} (dtype={resolved_dtype})...")
-            pipe = pipeline_cls.from_pretrained(model_id, torch_dtype=resolved_dtype, **kwargs)
-            if enable_cpu_offload and device.startswith("cuda") and hasattr(pipe, "enable_model_cpu_offload"):
+            load_kwargs = dict(kwargs)
+            if device_map is not None:
+                load_kwargs["device_map"] = device_map
+            pipe = pipeline_cls.from_pretrained(model_id, torch_dtype=resolved_dtype, **load_kwargs)
+            if device_map is not None:
+                print(f"[TextGuider] Device map: {device_map}; keeping pipeline sharded")
+            elif enable_cpu_offload and device.startswith("cuda") and hasattr(pipe, "enable_model_cpu_offload"):
                 pipe.enable_model_cpu_offload()
             elif hasattr(pipe, "to"):
                 pipe.to(device)

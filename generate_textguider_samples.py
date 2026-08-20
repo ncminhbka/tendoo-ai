@@ -166,6 +166,8 @@ def parse_args():
     parser.add_argument("--amo-c", type=float, default=0.5, help="AMO overshooting hyperparameter c (default: 0.5)")
     parser.add_argument("--no-amo", action="store_true", help="Disable AMO overshooting")
     parser.add_argument("--no-cpu-offload", action="store_true", help="Disable model CPU offload (use only if VRAM >= 24GB)")
+    parser.add_argument("--multi-gpu", action="store_true",
+                        help="Shard pipeline across visible GPUs with device_map=balanced")
     parser.add_argument("--no-cfg", action="store_true",
                          help="Tắt classifier-free guidance thật (2 lượt forward). "
                               "KHÔNG khuyến nghị với model Base — xem ARCHITECTURE_NOTES.md mục 4.")
@@ -271,7 +273,8 @@ def main():
             config=config,
             device=device,
             torch_dtype=resolved_dtype,
-            enable_cpu_offload=not args.no_cpu_offload,
+            enable_cpu_offload=not args.no_cpu_offload and not args.multi_gpu,
+            device_map="balanced" if args.multi_gpu else None,
         )
 
     summary_records = []
