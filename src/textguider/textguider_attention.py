@@ -146,7 +146,18 @@ def _is_double_stream_attention(module) -> bool:
     (`to_added_qkv`) — single-stream block gộp QKV+MLP chung một phép
     chiếu (fused). Cách này bền hơn việc đoán tên class/module.
     """
-    return hasattr(module, "to_added_qkv") and hasattr(module, "to_q")
+    # Diffusers may leave the text projections unfused (add_q_proj/add_k_proj/
+    # add_v_proj) or fuse them into to_added_qkv. Both represent the
+    # double-stream Flux2 attention; single-stream attention has neither.
+    has_added_projections = (
+        getattr(module, "added_kv_proj_dim", None) is not None
+        and hasattr(module, "add_q_proj")
+        and hasattr(module, "add_k_proj")
+        and hasattr(module, "add_v_proj")
+    )
+    return hasattr(module, "to_q") and (
+        hasattr(module, "to_added_qkv") or has_added_projections
+    )
 
 
 def build_guidance_tensor(
@@ -417,9 +428,15 @@ class _GradientCaptureProcessor:
             key = attn.norm_k(key)
 
         text_len = 0
-        if hasattr(attn, "to_added_qkv") and encoder_hidden_states is not None:
-            enc_qkv = attn.to_added_qkv(encoder_hidden_states)
-            enc_q, enc_k, enc_v = enc_qkv.chunk(3, dim=-1)
+        if encoder_hidden_states is not None and (
+            hasattr(attn, "to_added_qkv") or getattr(attn, "added_kv_proj_dim", None) is not None
+        ):
+            if hasattr(attn, "to_added_qkv"):
+                enc_q, enc_k, enc_v = attn.to_added_qkv(encoder_hidden_states).chunk(3, dim=-1)
+            else:
+                enc_q = attn.add_q_proj(encoder_hidden_states)
+                enc_k = attn.add_k_proj(encoder_hidden_states)
+                enc_v = attn.add_v_proj(encoder_hidden_states)
             enc_q = enc_q.unflatten(-1, (attn.heads, -1))
             enc_k = enc_k.unflatten(-1, (attn.heads, -1))
             enc_v = enc_v.unflatten(-1, (attn.heads, -1))

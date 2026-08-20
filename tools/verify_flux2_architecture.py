@@ -129,6 +129,10 @@ def main() -> int:
     report["double_stream"] = {
         "count": len(modules),
         "names": [name for name, _ in modules],
+        "attention_projection_style": [
+            "fused" if hasattr(module, "to_added_qkv") else "separate_add_qkv"
+            for _, module in modules
+        ],
         "config_num_layers": getattr(config, "num_layers", None),
         "matches_config": len(modules) == getattr(config, "num_layers", -1),
     }
