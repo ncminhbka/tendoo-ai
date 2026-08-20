@@ -255,12 +255,16 @@ class TextGuiderFluxPipeline:
             parameter.requires_grad_(False)
 
         prompt_embeds, txt_ids = self._encode(pipe, prompt)
-        prompt_embeds = prompt_embeds.to(device=self.device, dtype=self.dtype)
+        prompt_embeds = prompt_embeds.to(device=self.device, dtype=self.dtype).detach()
+        if isinstance(txt_ids, torch.Tensor):
+            txt_ids = txt_ids.to(device=self.device).detach()
 
         uncond_embeds, uncond_ids = None, None
         if self.config.use_cfg:
             uncond_embeds, uncond_ids = self._encode(pipe, self.config.negative_prompt)
-            uncond_embeds = uncond_embeds.to(device=self.device, dtype=self.dtype)
+            uncond_embeds = uncond_embeds.to(device=self.device, dtype=self.dtype).detach()
+            if isinstance(uncond_ids, torch.Tensor):
+                uncond_ids = uncond_ids.to(device=self.device).detach()
 
         # Verify token alignment TRƯỚC khi dùng cho guidance — xem
         # ARCHITECTURE_NOTES.md mục 3.
@@ -345,7 +349,7 @@ class TextGuiderFluxPipeline:
 
         for i, t in enumerate(timesteps):
             is_guided = i < t_guide_steps
-            t_step = self._prepare_timestep(t, latents)
+            t_step = self._prepare_timestep(t, latents).detach()
             # The official Flux2Klein CFG path passes guidance=None to the
             # transformer. CFG scale is applied after conditional and
             # unconditional predictions are produced; it is not the
