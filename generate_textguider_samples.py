@@ -10,7 +10,10 @@ Features:
   - Supports both full GPU inference and CPU dry-run simulation
 
 Usage:
-    # Dry-run on CPU (test script without loading model weights)
+    # Dry-run trên CPU — CHỈ kiểm tra CLI plumbing (I/O, argparse, lưu file),
+    # KHÔNG chạy qua logic TextGuider thật (parse token, attention hook,
+    # loss, gradient). Muốn kiểm chứng logic thật, phải chạy có --model-id
+    # thật trên máy có GPU (hoặc CPU float32, sẽ rất chậm nhưng vẫn đúng).
     python generate_textguider_samples.py --dry-run
 
     # Full generation with side-by-side comparison on GPU server
@@ -18,6 +21,13 @@ Usage:
 
     # Custom prompt test
     python generate_textguider_samples.py --prompts "Poster khuyến mại 'MUA 1 TẶNG 1' trà sữa" --compare
+
+    # Tắt CFG thật (không khuyến nghị với model Base — xem ARCHITECTURE_NOTES.md)
+    python generate_textguider_samples.py --no-cfg --compare
+
+    # Tắt strict-mode nếu đã xác nhận pipeline chạy đúng trên server này và
+    # muốn TextGuider tự fallback êm ái thay vì raise khi có bất thường
+    python generate_textguider_samples.py --no-strict --compare
 """
 
 import argparse
@@ -26,7 +36,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from PIL import Image, ImageDraw, ImageFont
 import torch
@@ -46,15 +56,13 @@ try:
 except Exception as exc:
     print(f"[Qwen3 RoPE patch] skipped: {exc}")
 
-# Ensure src is importable
+# Package "textguider/" nằm cùng cấp với script này (không phải src/textguider
+# như bản trước giả định — sửa lại cho khớp cấu trúc thư mục thật).
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.textguider import (
+from textguider import (
     TextGuiderConfig,
     TextGuiderFluxPipeline,
-    TextGuiderLoss,
-    TextGuiderTokenParser,
-    symmetric_kl_divergence,
 )
 
 
@@ -95,17 +103,14 @@ def create_side_by_side_comparison(
     font_label = _get_font(font_size=24)
     font_sub = _get_font(font_size=16)
 
-    # Draw Header & Prompt
     draw.text((20, 15), f"Tendoo Media AI — {title}", fill=(255, 255, 255), font=font_title)
     short_prompt = (prompt[:120] + "...") if len(prompt) > 120 else prompt
     draw.text((20, 55), f"Prompt: {short_prompt}", fill=(180, 190, 205), font=font_sub)
 
-    # Paste Base Image
     comp_img.paste(img_base, (10, header_h))
     draw.rectangle([10, header_h - 40, 10 + w, header_h], fill=(35, 39, 49))
     draw.text((20, header_h - 35), "❌ Base FLUX.2 Klein (Không TextGuider)", fill=(255, 120, 120), font=font_label)
 
-    # Paste TextGuider Image
     comp_img.paste(img_textguider, (w + 20, header_h))
     draw.rectangle([w + 20, header_h - 40, w + 20 + w, header_h], fill=(20, 45, 60))
     draw.text((w + 30, header_h - 35), "✨ FLUX.2 Klein + TextGuider (arXiv:2512.09350)", fill=(100, 210, 255), font=font_label)
@@ -155,14 +160,23 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--width", type=int, default=1024, help="Image width (default: 1024)")
     parser.add_argument("--height", type=int, default=1024, help="Image height (default: 1024)")
-    parser.add_argument("--steps", type=int, default=50, help="Denoising steps (default: 50 for base)")
-    parser.add_argument("--guidance-scale", type=float, default=4.0, help="CFG guidance scale (default: 4.0 for base)")
+    parser.add_argument("--steps", type=int, default=50, help="Denoising steps (default: 50 for base — xác nhận qua README chính thức)")
+    parser.add_argument("--guidance-scale", type=float, default=4.0, help="CFG guidance scale (default: 4.0, khớp denoise_cfg() của repo gốc cho model Base)")
     parser.add_argument("--alpha", type=float, default=60.0, help="TextGuider guidance step size (default: 60.0)")
     parser.add_argument("--t-guide-ratio", type=float, default=0.25, help="Guidance step fraction (default: 0.25 = 1/4 total steps)")
     parser.add_argument("--amo-c", type=float, default=0.5, help="AMO overshooting hyperparameter c (default: 0.5)")
     parser.add_argument("--no-amo", action="store_true", help="Disable AMO overshooting")
     parser.add_argument("--no-cpu-offload", action="store_true", help="Disable model CPU offload (use only if VRAM >= 24GB)")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run on CPU without loading weights")
+    parser.add_argument("--no-cfg", action="store_true",
+                         help="Tắt classifier-free guidance thật (2 lượt forward). "
+                              "KHÔNG khuyến nghị với model Base — xem ARCHITECTURE_NOTES.md mục 4.")
+    parser.add_argument("--negative-prompt", type=str, default="",
+                         help="Prompt âm bản dùng cho CFG (mặc định rỗng, khớp denoise_cfg gốc)")
+    parser.add_argument("--no-strict", action="store_true",
+                         help="Tắt strict_mode: TextGuider sẽ fallback êm ái thay vì raise "
+                              "khi hook/alignment thất bại. Chỉ bật khi đã xác nhận pipeline "
+                              "chạy đúng trên server cụ thể của bạn.")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run on CPU without loading weights (chỉ test CLI plumbing, xem docstring)")
     parser.add_argument("--compare", action="store_true", help="Generate both Base and TextGuider + side-by-side comparison")
     parser.add_argument("--output-dir", type=str, default="outputs/textguider_server", help="Output directory")
     parser.add_argument("--prompts", type=str, nargs="+", default=None, help="Custom prompt list")
@@ -210,21 +224,27 @@ def main():
 
     print("=" * 70)
     print("🚀 FLUX.2 Klein 4B Base + TextGuider Server Runner")
-    print(f"  Paper:         TextGuider (arXiv:2512.09350)")
+    print("  Paper:         TextGuider (arXiv:2512.09350)")
     print(f"  Model ID:      {args.model_id}")
     print(f"  Device:        {device}")
     print(f"  Dtype:         {resolved_dtype}")
     print(f"  Steps:         {args.steps} (Guidance steps: {int(args.steps * args.t_guide_ratio)})")
-    print(f"  Guidance CFG:  {args.guidance_scale}")
+    print(f"  Guidance CFG:  {args.guidance_scale} (use_cfg={not args.no_cfg})")
     print(f"  TextGuider α:  {args.alpha}")
     print(f"  AMO Enabled:   {not args.no_amo} (c = {args.amo_c})")
+    print(f"  Strict mode:   {not args.no_strict}")
     print(f"  Resolution:    {args.width}x{args.height}")
     print(f"  Seed:          {args.seed}")
-    print(f"  Mode:          {'Dry-run (CPU simulation)' if args.dry_run else 'Full GPU Execution'}")
+    print(f"  Mode:          {'Dry-run (CPU simulation — KHÔNG test logic TextGuider thật)' if args.dry_run else 'Full GPU Execution'}")
     print(f"  Compare Mode:  {args.compare}")
     print(f"  Output Dir:    {output_dir}")
     print(f"  Prompt Count:  {len(prompts)}")
     print("=" * 70)
+
+    if args.dry_run:
+        print("[Runner] ⚠️  --dry-run chỉ kiểm tra CLI plumbing (argparse, I/O, lưu file).")
+        print("[Runner] ⚠️  KHÔNG đi qua parse token / attention hook / loss / gradient thật.")
+        print("[Runner] ⚠️  Muốn kiểm chứng TextGuider hoạt động đúng, chạy KHÔNG có --dry-run.")
 
     config = TextGuiderConfig(
         alpha=args.alpha,
@@ -234,6 +254,9 @@ def main():
         num_inference_steps=args.steps,
         guidance_scale=args.guidance_scale,
         resolution=args.width,
+        use_cfg=not args.no_cfg,
+        negative_prompt=args.negative_prompt,
+        strict_mode=not args.no_strict,
     )
 
     if args.dry_run:
@@ -262,7 +285,6 @@ def main():
         print(f"\n[{i+1}/{len(prompts)}] 📌 {title}")
         print(f"    Prompt: {prompt}")
 
-        t0 = time.time()
         record = {
             "id": pid,
             "title": title,
@@ -272,9 +294,9 @@ def main():
             "guidance_scale": args.guidance_scale,
             "alpha": args.alpha,
             "t_guide_ratio": args.t_guide_ratio,
+            "use_cfg": not args.no_cfg,
         }
 
-        # 1. Base generation (if compare mode enabled)
         img_base = None
         if args.compare:
             print("    ▶ Generating Base FLUX.2 Klein...")
@@ -294,7 +316,6 @@ def main():
             img_base.save(base_path)
             print(f"    ✓ Base saved: {base_path} ({base_time:.1f}s)")
 
-        # 2. TextGuider generation
         print("    ▶ Generating FLUX.2 Klein + TextGuider...")
         t_tg_start = time.time()
         img_tg = pipeline.generate(
@@ -312,7 +333,6 @@ def main():
         img_tg.save(tg_path)
         print(f"    ✓ TextGuider saved: {tg_path} ({tg_time:.1f}s)")
 
-        # 3. Create side-by-side comparison if compare mode is on
         if args.compare and img_base is not None:
             comp_img = create_side_by_side_comparison(img_base, img_tg, title, prompt)
             comp_path = output_dir / f"{pid}_comparison.png"
@@ -326,7 +346,6 @@ def main():
 
         summary_records.append(record)
 
-    # Save summary json
     summary_file = output_dir / "summary.json"
     with open(summary_file, "w", encoding="utf-8") as f:
         json.dump({
@@ -341,13 +360,15 @@ def main():
                 "amo_overshoot_c": args.amo_c,
                 "steps": args.steps,
                 "guidance_scale": args.guidance_scale,
+                "use_cfg": not args.no_cfg,
+                "strict_mode": not args.no_strict,
                 "seed": args.seed,
             },
             "results": summary_records,
         }, f, indent=2, ensure_ascii=False)
 
     print("\n" + "=" * 70)
-    print(f"✅ Hoàn thành sinh mẫu TextGuider!")
+    print("✅ Hoàn thành sinh mẫu TextGuider!")
     print(f"📁 Kết quả lưu tại: {output_dir.resolve()}")
     print(f"📄 File tổng kết:   {summary_file.resolve()}")
     print("=" * 70)

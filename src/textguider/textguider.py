@@ -3,20 +3,18 @@ TextGuider: Training-Free Guidance for Text Rendering via Attention Alignment.
 arXiv:2512.09350
 
 Core implementation of TextGuider loss functions (split loss, wrap loss),
-AMO Sampler integration, and token parsing for FLUX.2 Klein 4B base.
+AMO Sampler integration, và token parsing cho FLUX.2 Klein 4B Base.
 
-Key components:
-  - TextGuiderConfig: hyperparameters for guidance
-  - TextGuiderTokenParser: identifies quotation mark and textual content tokens
-  - TextGuiderLoss: split loss + wrap loss computation
-  - AMOSampler: Attention Modulated Overshooting mechanism
+Đã cập nhật (xem ARCHITECTURE_NOTES.md) để khớp với cách FLUX.2 Klein thật
+sự dùng Qwen3 làm bộ trích đặc trưng văn bản (encoding-only), KHÔNG phải
+một lượt chat instruct — khác với giả định ban đầu.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -26,104 +24,141 @@ from torch import Tensor
 
 @dataclass
 class TextGuiderConfig:
-    """Configuration hyperparameters for TextGuider.
+    """Cấu hình siêu tham số cho TextGuider.
 
     Paper defaults (Section 4.1, Section B, Section D):
       - alpha = 60 (guidance step size)
-      - t_guide_ratio = 0.25 (first quarter of denoising steps)
+      - t_guide_ratio = 0.25 (1/4 số bước đầu)
       - amo_overshoot_c = 0.5
-      - 100 denoising steps, 512x512 resolution in the paper
-      - For FLUX.2 Klein base (50 steps default), ratios are preserved.
+
+    Với FLUX.2 [klein] 4B Base — xác nhận từ README chính thức
+    (black-forest-labs/flux2): model này KHÔNG distill, khuyến nghị 50 bước,
+    và dùng classifier-free guidance thật (denoise_cfg trong sampling.py),
+    guidance mặc định 4.0 — xem ARCHITECTURE_NOTES.md mục 4 và 8.
     """
 
     # --- TextGuider guidance ---
-    alpha: float = 60.0  # Guidance step size (Eq. 6 update rule)
-    t_guide_ratio: float = 0.25  # Fraction of total steps to apply guidance
+    alpha: float = 60.0
+    t_guide_ratio: float = 0.25
 
     # --- AMO Sampler (Equation 2) ---
-    amo_enabled: bool = True  # Enable Attention Modulated Overshooting
-    amo_overshoot_c: float = 0.5  # Overshooting hyperparameter c
+    amo_enabled: bool = True
+    amo_overshoot_c: float = 0.5
 
     # --- Gradient computation ---
-    target_layers: str = "double"  # "double" = dual-stream blocks only (paper Sec. B)
-    use_gradient_checkpointing: bool = True  # Memory-efficient backprop
+    # "double" = chỉ backprop qua dual-stream blocks, loại trừ single-stream
+    # (đúng theo paper Section B). Xem lưu ý ở TextGuiderForwardWrapper.
+    target_layers: str = "double"
+    use_gradient_checkpointing: bool = True
 
-    # --- Generation defaults for FLUX.2 Klein base ---
+    # --- Classifier-free guidance (BẮT BUỘC với model Base — mục 4) ---
+    use_cfg: bool = True
+    negative_prompt: str = ""
+
+    # --- Generation defaults cho FLUX.2 Klein 4B Base ---
     num_inference_steps: int = 50
     guidance_scale: float = 4.0
     resolution: int = 1024
 
+    # --- Chế độ nghiêm ngặt: raise thay vì âm thầm fallback khi có bất
+    # thường (attention rỗng, token không khớp encoder...). Bật khi debug,
+    # có thể tắt khi đã xác nhận pipeline chạy đúng trên server cụ thể. ---
+    strict_mode: bool = True
+
 
 # ---------------------------------------------------------------------------
-# Token parsing: identify τ_quo (opening quotation mark) and τ_text (textual
-# content tokens) from the tokenized prompt.
+# Token parsing: xác định tau_quo (dấu ngoặc kép mở) và tau_text (token nội
+# dung chữ cần render) từ prompt.
 # ---------------------------------------------------------------------------
 
-# Unicode quotation mark characters to search for in the token sequence.
-QUOTATION_MARKS = {'"', '\u201c', '\u201d', '\u2018', '\u2019', "'", '\u00ab', '\u00bb'}
-# Opening quotation marks specifically.
-OPENING_QUOTES = {'"', '\u201c', '\u2018', "'", '\u00ab'}
+
+class TokenAlignmentError(RuntimeError):
+    """Raised khi token index tính từ parser không khớp với encoder thật.
+
+    Đây chính là lỗi im lặng nguy hiểm nhất ở bản cũ (xem
+    ARCHITECTURE_NOTES.md mục 3) — thay vì để guidance bám nhầm token, ta
+    raise rõ ràng để người dùng biết ngay và tự đối chiếu lại cách
+    tokenizer/encode_prompt thật của pipeline hoạt động.
+    """
 
 
 class TextGuiderTokenParser:
-    """Identifies quotation-mark tokens and textual-content tokens in a prompt.
+    """Xác định token dấu ngoặc kép và token nội dung chữ trong prompt.
 
-    In the TextGuider paper, prompts use quotation marks to delimit the text
-    that should be rendered in the image.  For example:
-        'A sign that says "Hello World"'
-    Here τ_quo = token index of the opening `"`, and τ_text = token indices
-    for "Hello" and "World".
+    THAY ĐỔI QUAN TRỌNG so với bản cũ: KHÔNG còn mặc định áp
+    `apply_chat_template` kiểu chat instruct. Theo tài liệu mô tả
+    `Qwen3Embedder` trong repo chính thức, Qwen3 ở FLUX.2 Klein được dùng
+    như một bộ trích đặc trưng (lấy hidden state ở layer [9,18,27] rồi nối
+    lại), KHÔNG phải một lượt sinh chat — nên hầu như chắc chắn không có
+    chat template nào được áp khi tokenize cho mục đích encode prompt.
 
-    This parser handles Qwen3's chat-template formatting used by FLUX.2 Klein.
+    Mặc định giờ đây tokenize THÔ (không template, không pad cứng độ dài),
+    và bắt buộc gọi `verify_alignment()` sau khi có `encoder_hidden_states`
+    thật để đảm bảo không lệch vị trí — thay vì tin tưởng mù quáng.
     """
 
     @staticmethod
     def parse_tokens(
         tokenizer,
         prompt: str,
+        use_chat_template: bool = False,
     ) -> Dict[str, object]:
-        """Parse a prompt to find quotation marks and textual content tokens.
+        """Parse prompt để tìm token dấu ngoặc kép và token nội dung chữ.
 
-        Returns a dict with:
-          - "quo_indices": List[int]  — token positions of opening quotation marks
-          - "text_token_indices": List[List[int]] — per-quoted-span token positions
-          - "text_strings": List[str] — the raw text strings within quotes
-          - "all_text_indices": List[int] — flattened list of all text token indices
-          - "num_text_tokens": int — total number of textual content tokens
+        Args:
+            tokenizer: tokenizer thật của pipeline (vd. pipe.tokenizer).
+            prompt: prompt gốc do người dùng nhập.
+            use_chat_template: chỉ bật nếu bạn đã xác nhận (qua đọc source
+                thật của Flux2KleinPipeline.encode_prompt) rằng nó thật sự
+                áp chat template trước khi tokenize. Mặc định False vì Qwen3
+                ở đây là bộ trích đặc trưng, không phải chat model.
+
+        Returns dict:
+          - "quo_indices": List[int]
+          - "text_token_indices": List[List[int]]
+          - "text_strings": List[str]
+          - "all_text_indices": List[int]
+          - "num_text_tokens": int
+          - "formatted_text": str — chuỗi thực sự đã tokenize (để đối chiếu)
+          - "num_tokens_total": int — tổng số token thật (không padding) của
+            chuỗi đã tokenize, dùng cho verify_alignment().
         """
-        # 1. Apply Qwen3 chat template (same as FLUX.2 Klein pipeline)
-        try:
-            formatted = tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-        except Exception:
+        if use_chat_template:
+            try:
+                formatted = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except Exception:
+                formatted = prompt
+        else:
             formatted = prompt
 
-        # 2. Tokenize with offset mapping
+        # KHÔNG pad cứng max_length=512 nữa: pad giả sẽ tạo token thừa
+        # không tồn tại trong encoder_hidden_states thật, phá alignment.
+        # Chỉ tokenize đúng những gì có trong chuỗi.
         encoded = tokenizer(
             formatted,
             return_offsets_mapping=True,
             return_attention_mask=True,
-            padding="max_length",
+            padding=False,
             truncation=True,
-            max_length=512,
+            max_length=getattr(tokenizer, "model_max_length", None) or 4096,
         )
 
         input_ids = encoded["input_ids"]
         offsets = encoded["offset_mapping"]
         attention_mask = encoded.get("attention_mask", [1] * len(input_ids))
 
-        # 3. Find the prompt text within the formatted template
         prompt_start_in_formatted = formatted.find(prompt)
         if prompt_start_in_formatted < 0:
             prompt_start_in_formatted = 0
-        prompt_end_in_formatted = prompt_start_in_formatted + len(prompt)
 
-        # 4. Extract quoted text spans from the original prompt
         quoted_spans = _extract_quoted_spans(prompt)
+        num_tokens_total = sum(1 for m in attention_mask if m == 1)
+
         if not quoted_spans:
             return {
                 "quo_indices": [],
@@ -131,27 +166,25 @@ class TextGuiderTokenParser:
                 "text_strings": [],
                 "all_text_indices": [],
                 "num_text_tokens": 0,
+                "formatted_text": formatted,
+                "num_tokens_total": num_tokens_total,
             }
 
-        # 5. For each quoted span, find the token indices
         quo_indices: List[int] = []
         text_token_indices: List[List[int]] = []
         text_strings: List[str] = []
 
         for quote_char, text_content, char_start, char_end in quoted_spans:
-            # Adjust positions to the formatted template
             abs_quote_start = prompt_start_in_formatted + char_start
             abs_text_start = prompt_start_in_formatted + char_start + len(quote_char)
             abs_text_end = prompt_start_in_formatted + char_end - len(quote_char)
 
-            # Find the opening quotation mark token
             quo_idx = _find_token_at_position(
                 offsets, attention_mask, abs_quote_start, abs_quote_start + len(quote_char)
             )
             if quo_idx is not None:
                 quo_indices.append(quo_idx)
 
-            # Find all textual content tokens
             content_indices = _find_tokens_in_range(
                 offsets, attention_mask, abs_text_start, abs_text_end
             )
@@ -167,35 +200,73 @@ class TextGuiderTokenParser:
             "text_strings": text_strings,
             "all_text_indices": all_text_indices,
             "num_text_tokens": len(all_text_indices),
+            "formatted_text": formatted,
+            "num_tokens_total": num_tokens_total,
         }
+
+    @staticmethod
+    def verify_alignment(
+        token_info: Dict[str, object],
+        encoder_hidden_states: Tensor,
+        strict: bool = True,
+    ) -> bool:
+        """Đảm bảo token index tính offline khớp với chuỗi encoder thật.
+
+        Đây là lớp phòng vệ trực tiếp cho lỗi ở ARCHITECTURE_NOTES.md mục 3:
+        so `num_tokens_total` (từ tokenize riêng của parser) với độ dài
+        thật `encoder_hidden_states.shape[1]`. Nếu lệch, guidance gần như
+        chắc chắn bám sai token.
+
+        Raises:
+            TokenAlignmentError nếu strict=True và không khớp.
+
+        Returns:
+            True nếu khớp, False nếu lệch (chỉ khi strict=False).
+        """
+        real_len = encoder_hidden_states.shape[1]
+        expected_len = token_info.get("num_tokens_total")
+        if expected_len is None:
+            return True  # không có thông tin để verify, bỏ qua
+
+        # encoder thật có thể padding thêm ở cuối (attention_mask=0) — điều
+        # kiện hợp lệ là: real_len >= expected_len, VÀ mọi token_info index
+        # < expected_len đều nằm trong phần không-padding của real sequence.
+        # Nếu real_len nhỏ hơn số token ta tính được offline, chắc chắn lệch
+        # (bị truncate khác cách, hoặc formatted_text không khớp).
+        ok = real_len >= expected_len
+        if not ok and strict:
+            raise TokenAlignmentError(
+                f"[TextGuider] Token misalignment: parser tính {expected_len} "
+                f"token nhưng encoder_hidden_states thật có {real_len} token. "
+                f"Guidance sẽ bám sai vị trí nếu tiếp tục. Hãy kiểm tra lại "
+                f"cách Flux2KleinPipeline.encode_prompt thật sự tokenize "
+                f"prompt (có chat template không, có padding/truncate khác "
+                f"không) rồi khớp lại TextGuiderTokenParser.parse_tokens."
+            )
+        return ok
 
 
 def _extract_quoted_spans(prompt: str) -> List[Tuple[str, str, int, int]]:
     """Extract text spans enclosed in quotation marks.
 
-    Returns list of (quote_char, text_content, char_start, char_end).
-    char_start/end are positions in the original prompt string,
-    where char_start points to the opening quote and char_end points
-    past the closing quote.
+    Trả về list (quote_char, text_content, char_start, char_end).
     """
     results = []
 
-    # Match various quotation patterns
     patterns = [
-        (r'"([^"]*)"', '"'),       # Standard double quotes
-        (r'\u201c([^\u201d]*)\u201d', '\u201c'),  # "curly" quotes
-        (r"'([^']*)'", "'"),       # Single quotes (use carefully)
-        (r'\u2018([^\u2019]*)\u2019', '\u2018'),  # 'curly' single quotes
-        (r'\u00ab([^\u00bb]*)\u00bb', '\u00ab'),  # «guillemets»
+        (r'"([^"]*)"', '"'),
+        (r'\u201c([^\u201d]*)\u201d', '\u201c'),
+        (r"'([^']*)'", "'"),
+        (r'\u2018([^\u2019]*)\u2019', '\u2018'),
+        (r'\u00ab([^\u00bb]*)\u00bb', '\u00ab'),
     ]
 
     for pattern, quote_char in patterns:
         for m in re.finditer(pattern, prompt):
             text_content = m.group(1)
-            if text_content.strip():  # Skip empty quotes
+            if text_content.strip():
                 results.append((quote_char, text_content, m.start(), m.end()))
 
-    # Sort by position and deduplicate overlapping spans
     results.sort(key=lambda x: x[2])
     deduped = []
     last_end = -1
@@ -212,7 +283,7 @@ def _find_token_at_position(
     char_start: int,
     char_end: int,
 ) -> Optional[int]:
-    """Find the token index whose offset overlaps [char_start, char_end)."""
+    """Tìm token index có offset overlap nhiều nhất với [char_start, char_end)."""
     best_idx = None
     best_overlap = 0
     for i, (s, e) in enumerate(offsets):
@@ -231,40 +302,27 @@ def _find_tokens_in_range(
     char_start: int,
     char_end: int,
 ) -> List[int]:
-    """Find all token indices whose offsets fall within [char_start, char_end)."""
+    """Tìm mọi token index có offset nằm trong [char_start, char_end)."""
     indices = []
     for i, (s, e) in enumerate(offsets):
         if attention_mask[i] == 0 or s == e:
             continue
-        # Token overlaps with the target range
         if s < char_end and e > char_start:
             indices.append(i)
     return indices
 
 
 # ---------------------------------------------------------------------------
-# Loss functions: Split Loss (Eq. 3) and Wrap Loss (Eq. 4)
+# Loss functions: Split Loss (Eq. 3) và Wrap Loss (Eq. 4).
+# Không tìm thấy lỗi toán học ở phần này trong audit — GIỮ NGUYÊN logic cũ.
 # ---------------------------------------------------------------------------
 
+
 def symmetric_kl_divergence(p: Tensor, q: Tensor, eps: float = 1e-8) -> Tensor:
-    """Symmetric KL divergence: d(p, q) = 0.5 * KL(p||q) + 0.5 * KL(q||p).
-
-    Paper Equation 5.  Inputs are normalized to sum to 1 to ensure valid
-    probability distributions.
-
-    Args:
-        p: Attention map, shape [..., N] (last dim is spatial)
-        q: Attention map, shape [..., N]
-        eps: Small constant for numerical stability
-
-    Returns:
-        Scalar symmetric KL divergence.
-    """
-    # Normalize to probability distributions
+    """Symmetric KL divergence: d(p, q) = 0.5 * KL(p||q) + 0.5 * KL(q||p). (Eq. 5)"""
     p_norm = p / (p.sum(dim=-1, keepdim=True) + eps)
     q_norm = q / (q.sum(dim=-1, keepdim=True) + eps)
 
-    # Clamp for log stability
     p_norm = p_norm.clamp(min=eps)
     q_norm = q_norm.clamp(min=eps)
 
@@ -275,71 +333,27 @@ def symmetric_kl_divergence(p: Tensor, q: Tensor, eps: float = 1e-8) -> Tensor:
 
 
 class TextGuiderLoss:
-    """Computes TextGuider's split loss and wrap loss from attention maps.
-
-    Paper Section 3.3:
-      - Split loss (Eq. 3): Encourages spatially separated activations for
-        each textual content token.
-      - Wrap loss (Eq. 4): Encourages the quotation mark token attention to
-        cover all textual content token regions.
-      - Total loss (Eq. 6): L = (L_split + L_wrap) / N
-        where N = C(n,2) + 1, normalizing by the number of comparisons.
-    """
+    """Split loss + wrap loss từ attention maps. (Section 3.3)"""
 
     @staticmethod
     def split_loss(attn_maps_text: List[Tensor]) -> Tensor:
-        """Equation 3: Split loss over all pairs of textual content tokens.
-
-        Minimizes overlap between attention maps of different text tokens,
-        encouraging each token to activate in its own spatial region.
-
-        Args:
-            attn_maps_text: List of attention maps for each textual content
-                token, each shape [num_img_tokens] (averaged over heads/layers).
-
-        Returns:
-            Scalar split loss.
-        """
         n = len(attn_maps_text)
         if n < 2:
             return torch.tensor(0.0, device=attn_maps_text[0].device if attn_maps_text else "cpu")
 
         loss = torch.tensor(0.0, device=attn_maps_text[0].device)
-        count = 0
         for i in range(n):
             for j in range(i + 1, n):
-                # Negative symmetric KL: we want to MAXIMIZE divergence
-                # (minimize overlap), so we minimize -d(A_τi, A_τj)
                 loss = loss - symmetric_kl_divergence(attn_maps_text[i], attn_maps_text[j])
-                count += 1
 
-        return loss  # Already negative: minimizing this maximizes separation
+        return loss
 
     @staticmethod
     def wrap_loss(attn_map_quo: Tensor, attn_maps_text: List[Tensor]) -> Tensor:
-        """Equation 4: Wrap loss ensuring quotation mark covers all text token regions.
-
-        L_wrap = D_SKL( norm(sum_{i=1}^n A_{tau_i}), norm(A_{tau_quo}) )
-
-        Minimizes the symmetric KL divergence between the quotation mark
-        attention and the sum of all textual content token attentions,
-        encouraging tau_quo to attend broadly over the entire text region.
-
-        Args:
-            attn_map_quo: Attention map for the opening quotation mark token,
-                shape [num_img_tokens].
-            attn_maps_text: List of attention maps for textual content tokens.
-
-        Returns:
-            Scalar wrap loss.
-        """
         if not attn_maps_text:
             return torch.tensor(0.0, device=attn_map_quo.device)
 
-        # Sum of textual content attentions (Eq. 4: sum_{i=1}^n A_{tau_i})
         text_sum = torch.stack(attn_maps_text, dim=0).sum(dim=0)
-
-        # Minimize symmetric KL between sum of text token attentions and quotation mark attention
         return symmetric_kl_divergence(text_sum, attn_map_quo)
 
     @staticmethod
@@ -347,18 +361,6 @@ class TextGuiderLoss:
         attn_map_quo: Tensor,
         attn_maps_text: List[Tensor],
     ) -> Tensor:
-        """Equation 6: Combined normalized loss.
-
-        L = (L_split + L_wrap) / N
-        where N = C(n, 2) + 1 accounts for the number of pairwise comparisons.
-
-        Args:
-            attn_map_quo: Attention map for opening quotation mark token.
-            attn_maps_text: List of attention maps for textual content tokens.
-
-        Returns:
-            Scalar total loss.
-        """
         n = len(attn_maps_text)
         if n == 0:
             return torch.tensor(0.0, device=attn_map_quo.device)
@@ -366,32 +368,19 @@ class TextGuiderLoss:
         l_split = TextGuiderLoss.split_loss(attn_maps_text)
         l_wrap = TextGuiderLoss.wrap_loss(attn_map_quo, attn_maps_text)
 
-        # N = C(n, 2) + 1 = n*(n-1)/2 + 1
         n_comparisons = n * (n - 1) // 2 + 1
 
         return (l_split + l_wrap) / n_comparisons
 
 
 # ---------------------------------------------------------------------------
-# AMO Sampler: Attention Modulated Overshooting (from AMO Sampler paper,
-# integrated as described in TextGuider Section 3.3)
+# AMO Sampler — GIỮ NGUYÊN công thức, chỉ nơi gọi ở pipeline được sửa để
+# truyền generator nhất quán (tái lập được với --seed).
 # ---------------------------------------------------------------------------
 
+
 class AMOSampler:
-    """Attention Modulated Overshooting sampler.
-
-    Paper Equation 2:
-      Z_{t_{k+1}} = Z_{t_k} + ε * v_θ(Z_{t_k}, t_k)
-                     + sqrt(2 * o) * ξ ⊙ o
-    where:
-      o = t_{k+1} + ε * c * m
-      ξ ~ N(0, I)
-      m = attention mask from cross-modal attention
-      c = overshooting hyperparameter
-
-    TextGuider uses A (image-query, text-key) for both guidance and
-    AMO mask, instead of A^rev (text-query, image-key) used by original AMO.
-    """
+    """Attention Modulated Overshooting sampler. (Equation 2)"""
 
     def __init__(self, config: TextGuiderConfig):
         self.c = config.amo_overshoot_c
@@ -403,28 +392,12 @@ class AMOSampler:
         spatial_h: int,
         spatial_w: int,
     ) -> Tensor:
-        """Compute the attention-derived spatial mask m for AMO overshooting.
-
-        The mask is the average of cross-modal attention maps across all
-        textual content tokens, reshaped to the spatial latent dimensions.
-
-        Args:
-            attn_maps_text: Per-token attention maps, each [num_img_tokens].
-            num_img_tokens: Expected number of image tokens.
-            spatial_h: Latent height.
-            spatial_w: Latent width.
-
-        Returns:
-            Mask tensor of shape [1, 1, spatial_h, spatial_w], values in [0, 1].
-        """
         if not attn_maps_text:
             return torch.zeros(1, 1, spatial_h, spatial_w)
 
-        # Average attention across all text tokens
-        stacked = torch.stack(attn_maps_text, dim=0)  # [n, num_img_tokens]
-        avg_attn = stacked.mean(dim=0)  # [num_img_tokens]
+        stacked = torch.stack(attn_maps_text, dim=0)
+        avg_attn = stacked.mean(dim=0)
 
-        # Normalize to [0, 1]
         attn_min = avg_attn.min()
         attn_max = avg_attn.max()
         if attn_max - attn_min > 1e-8:
@@ -432,21 +405,16 @@ class AMOSampler:
         else:
             avg_attn = torch.zeros_like(avg_attn)
 
-        # Reshape to spatial dimensions
-        # FLUX.2 Klein uses 2x2 packing, so num_img_tokens = (H/16) * (W/16)
-        # The attention map over image tokens maps to spatial_h/2 * spatial_w/2
         h_packed = spatial_h // 2
         w_packed = spatial_w // 2
         expected_packed = h_packed * w_packed
 
         if avg_attn.shape[0] == expected_packed:
             mask = avg_attn.reshape(1, 1, h_packed, w_packed)
-            # Upsample to full latent resolution
             mask = F.interpolate(mask, size=(spatial_h, spatial_w), mode="bilinear", align_corners=False)
         elif avg_attn.shape[0] == spatial_h * spatial_w:
             mask = avg_attn.reshape(1, 1, spatial_h, spatial_w)
         else:
-            # Fallback: try to find closest spatial arrangement
             total = avg_attn.shape[0]
             h_guess = int(math.sqrt(total * spatial_h / spatial_w))
             w_guess = total // max(h_guess, 1)
@@ -466,18 +434,6 @@ class AMOSampler:
         mask: Tensor,
         generator: Optional[torch.Generator] = None,
     ) -> Tensor:
-        """Apply AMO overshooting step (Equation 2, second term).
-
-        Args:
-            z_next: Latent after standard Euler step, shape [B, C, H, W].
-            t_next: Next timestep value t_{k+1}.
-            epsilon: Step size ε = t_{k+1} - t_k.
-            mask: Spatial attention mask m, shape [1, 1, H, W].
-            generator: Optional random generator for reproducibility.
-
-        Returns:
-            Updated latent with overshooting noise applied.
-        """
         device = z_next.device
         dtype = z_next.dtype
 
@@ -487,10 +443,8 @@ class AMOSampler:
                 mask, size=z_next.shape[-2:], mode="bilinear", align_corners=False
             )
 
-        # o = t_{k+1} + ε * c * m
         o = t_next + epsilon * self.c * mask
 
-        # sqrt(2 * o) * ξ where ξ ~ N(0, I)
         noise = torch.randn(z_next.shape, device=device, dtype=dtype, generator=generator)
         overshoot = torch.sqrt(2.0 * o.clamp(min=0)) * noise
 

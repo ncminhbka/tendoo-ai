@@ -2,6 +2,11 @@
 # ==============================================================================
 # Script chạy thử nghiệm FLUX.2 Klein 4B Base + TextGuider trên GPU Server (Viettel)
 # Paper: TextGuider (arXiv:2512.09350)
+#
+# Cập nhật: xem ARCHITECTURE_NOTES.md — Base model (không distill) dùng CFG
+# thật (guidance mặc định 4.0 đã đúng từ trước). Mặc định script này chạy
+# strict_mode=True (raise ngay nếu hook/token-alignment thất bại); đặt biến
+# môi trường NO_STRICT=1 để tắt nếu bạn đã xác nhận pipeline chạy đúng.
 # ==============================================================================
 
 set -e
@@ -75,6 +80,7 @@ STEPS=50
 GUIDANCE=4.0
 ALPHA=60.0
 COMPARE_FLAG=""
+STRICT_FLAG=""
 
 # Kiểm tra nếu người dùng muốn so sánh (--compare)
 for arg in "$@"; do
@@ -83,15 +89,22 @@ for arg in "$@"; do
     fi
 done
 
+# Đặt NO_STRICT=1 trước khi chạy script này nếu muốn tắt strict_mode
+if [ "$NO_STRICT" == "1" ]; then
+    STRICT_FLAG="--no-strict"
+    echo "⚠️  NO_STRICT=1: chạy với strict_mode=False (fallback êm ái khi lỗi)."
+fi
+
 OUTPUT_DIR="outputs/textguider_server_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUTPUT_DIR"
 
 echo "------------------------------------------------------------------"
 echo "🔹 Model Path / ID:  $MODEL_PATH"
 echo "🔹 Seed:             $SEED"
-echo "🔹 Steps:            $STEPS (Guidance steps: 12)"
+echo "🔹 Steps:            $STEPS (Guidance steps: 12, guidance CFG thật cho model Base)"
 echo "🔹 Guidance Scale:   $GUIDANCE"
 echo "🔹 TextGuider α:     $ALPHA"
+echo "🔹 Strict mode:      $([ -z "$STRICT_FLAG" ] && echo "on (mặc định)" || echo "off")"
 echo "🔹 Mode:             Chạy trực tiếp TextGuider ${COMPARE_FLAG:+(kèm so sánh Base)}"
 echo "🔹 Output Dir:       $OUTPUT_DIR"
 echo "------------------------------------------------------------------"
@@ -109,6 +122,7 @@ python generate_textguider_samples.py \
     --t-guide-ratio 0.25 \
     --amo-c 0.5 \
     $COMPARE_FLAG \
+    $STRICT_FLAG \
     --output-dir "$OUTPUT_DIR"
 
 echo "=================================================================="
