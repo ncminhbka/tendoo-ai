@@ -38,6 +38,33 @@ def source_has(source: str, *needles: str) -> bool:
     return all(needle in source for needle in needles)
 
 
+def install_qwen3_rope_patch() -> str:
+    """Avoid the Triton-only Qwen3 RoPE path on restricted GPU servers.
+
+    Some hosted images cannot compile Triton's ``cuda_utils`` because the
+    Python development header is unavailable. This mathematically equivalent
+    implementation uses ordinary PyTorch broadcasting instead.
+    """
+    try:
+        import transformers.models.qwen3.modeling_qwen3 as qwen3_mod
+
+        if getattr(qwen3_mod.Qwen3RotaryEmbedding, "_tendoo_rope_patch", False):
+            return "already-installed"
+
+        def custom_rope_forward(self, x, position_ids, **kwargs):
+            inv_freq_expanded = self.inv_freq[None, :, None].float()
+            position_ids_expanded = position_ids[:, None, :].float()
+            freqs = (inv_freq_expanded * position_ids_expanded).transpose(1, 2)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            return emb.cos().to(dtype=x.dtype), emb.sin().to(dtype=x.dtype)
+
+        qwen3_mod.Qwen3RotaryEmbedding.forward = custom_rope_forward
+        qwen3_mod.Qwen3RotaryEmbedding._tendoo_rope_patch = True
+        return "installed"
+    except Exception as exc:
+        return f"failed: {exc!r}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="black-forest-labs/FLUX.2-klein-base-4B")
@@ -52,12 +79,18 @@ def main() -> int:
     from diffusers import Flux2KleinPipeline
 
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[args.dtype]
+    rope_patch_status = install_qwen3_rope_patch()
     pipe = Flux2KleinPipeline.from_pretrained(args.model, torch_dtype=dtype)
     pipe.to(args.device)
     transformer = pipe.transformer
     config = transformer.config
 
-    report: dict[str, Any] = {"model": args.model, "device": args.device, "dtype": str(dtype)}
+    report: dict[str, Any] = {
+        "model": args.model,
+        "device": args.device,
+        "dtype": str(dtype),
+        "qwen3_rope_patch": rope_patch_status,
+    }
     report["classes"] = {
         "pipeline": type(pipe).__name__,
         "transformer": type(transformer).__name__,
