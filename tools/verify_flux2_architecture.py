@@ -65,6 +65,23 @@ def install_qwen3_rope_patch() -> str:
         return f"failed: {exc!r}"
 
 
+def flux2_empirical_mu(image_seq_len: int, num_steps: int) -> float:
+    """Match Diffusers' Flux2 dynamic-shifting schedule calculation."""
+    try:
+        from diffusers.pipelines.flux2.pipeline_flux2_klein import compute_empirical_mu
+        return float(compute_empirical_mu(image_seq_len=image_seq_len, num_steps=num_steps))
+    except (ImportError, AttributeError):
+        a1, b1 = 8.73809524e-05, 1.89833333
+        a2, b2 = 0.00016927, 0.45666666
+        if image_seq_len > 4300:
+            return float(a2 * image_seq_len + b2)
+        m_200 = a2 * image_seq_len + b2
+        m_10 = a1 * image_seq_len + b1
+        a = (m_200 - m_10) / 190.0
+        b = m_200 - 200.0 * a
+        return float(a * num_steps + b)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="black-forest-labs/FLUX.2-klein-base-4B")
@@ -148,9 +165,16 @@ def main() -> int:
         "prepare_rule_expected": "timestep / 1000 (matches Flux2KleinPipeline source)",
         "transformer_call_should_use_guidance": None,
     }
-    pipe.scheduler.set_timesteps(2, device=args.device)
+    # Flux2's scheduler uses dynamic shifting and therefore requires mu.
+    # At the probe's default 1024x1024 resolution the packed image sequence
+    # is (1024 // 16) * (1024 // 16) = 4096 tokens.
+    probe_steps = 2
+    probe_image_seq_len = (1024 // 16) * (1024 // 16)
+    probe_mu = flux2_empirical_mu(probe_image_seq_len, probe_steps)
+    pipe.scheduler.set_timesteps(probe_steps, device=args.device, mu=probe_mu)
     report["scheduler_timesteps_after_set"] = [float(x) for x in pipe.scheduler.timesteps]
     report["scheduler_sigmas"] = [float(x) for x in pipe.scheduler.sigmas]
+    report["scheduler_mu"] = probe_mu
 
     # Prove the fallback permutation is reversible; the live pipeline methods
     # are reported separately because their signatures vary by Diffusers version.
