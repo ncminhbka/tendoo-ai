@@ -286,7 +286,27 @@ class TextGuiderFluxPipeline:
                 "_prepare_latent_image_ids"
             )
 
-        scheduler.set_timesteps(num_inference_steps, device=self.device)
+        if getattr(scheduler.config, "use_dynamic_shifting", False):
+            try:
+                from diffusers.pipelines.flux2.pipeline_flux2_klein import compute_empirical_mu
+                mu = compute_empirical_mu(
+                    image_seq_len=latents.shape[1], num_steps=num_inference_steps
+                )
+            except (ImportError, AttributeError):
+                # Same constants as Diffusers Flux2 for older package builds.
+                a1, b1 = 8.73809524e-05, 1.89833333
+                a2, b2 = 0.00016927, 0.45666666
+                n = latents.shape[1]
+                if n > 4300:
+                    mu = a2 * n + b2
+                else:
+                    m200 = a2 * n + b2
+                    m10 = a1 * n + b1
+                    slope = (m200 - m10) / 190.0
+                    mu = slope * num_inference_steps + (m200 - 200.0 * slope)
+            scheduler.set_timesteps(num_inference_steps, device=self.device, mu=mu)
+        else:
+            scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = scheduler.timesteps
         sigmas = scheduler.sigmas
 
