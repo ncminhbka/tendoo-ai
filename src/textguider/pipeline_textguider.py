@@ -448,7 +448,19 @@ class TextGuiderFluxPipeline:
 
         with torch.no_grad():
             latents_decoded = self._unpack_fn(latents, height, width)
-            latents_decoded = (latents_decoded / vae.config.scaling_factor) + vae.config.shift_factor
+            # Diffusers may expose the VAE config as a FrozenDict without
+            # attribute accessors on the sharded pipeline.
+            scaling_factor = (
+                vae.config.get("scaling_factor", 1.0)
+                if hasattr(vae.config, "get")
+                else getattr(vae.config, "scaling_factor", 1.0)
+            )
+            shift_factor = (
+                vae.config.get("shift_factor", 0.0)
+                if hasattr(vae.config, "get")
+                else getattr(vae.config, "shift_factor", 0.0)
+            )
+            latents_decoded = (latents_decoded / scaling_factor) + shift_factor
             image = vae.decode(latents_decoded, return_dict=False)[0]
             image = pipe.image_processor.postprocess(image)[0]
 
